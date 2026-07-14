@@ -434,6 +434,44 @@ class Pipeline:
         for _, typ in recent:
             per_type[typ] = per_type.get(typ, 0) + 1
         rate = {k: round(v / 10.0, 2) for k, v in per_type.items()}
+
+        # Live business metrics degradation logic
+        is_degraded = False
+        active_cause = None
+        if self._recent_incident_at:
+            latest_ts = max(self._recent_incident_at.values())
+            if now - latest_ts < 25.0: # active window of the incident demo
+                is_degraded = True
+                if self.history:
+                    # Let's find the latest incident's root cause kind
+                    active_cause = self.history[-1].get("hypotheses", [{}])[0].get("kind")
+
+        if is_degraded:
+            if active_cause == "config_change":
+                success_rate = 58.2
+                latency = 1420.0
+                loss = 120.0
+            elif active_cause == "attack":
+                success_rate = 74.5
+                latency = 650.0
+                loss = 45.0
+            else:
+                success_rate = 82.1
+                latency = 410.0
+                loss = 25.0
+        else:
+            success_rate = 99.4
+            latency = 85.0
+            loss = 0.0
+
+        business_impact = {
+            "status": "degraded" if is_degraded else "nominal",
+            "upi_success_rate": success_rate,
+            "card_success_rate": round(success_rate * 0.99, 1),
+            "api_latency_ms": latency,
+            "revenue_loss_per_min": loss
+        }
+
         return {
             "ts": now,
             "counters": dict(self._counters),
@@ -442,4 +480,6 @@ class Pipeline:
             "open_incidents": self.open_incidents_count,
             "hot_node": self.hot_node,
             "kitsune": self.kitsune.stats(),
+            "business_impact": business_impact,
         }
+

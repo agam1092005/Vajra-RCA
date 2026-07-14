@@ -141,6 +141,11 @@ function HypothesisCard({ h }: { h: Hypothesis }) {
                     <span className="ml-1 text-[10px] font-semibold text-[#f97316]">· needs approval</span>
                   )}
                   <span className="block text-[11px] text-[var(--muted)]">{r.reason}</span>
+                  {r.warning && (
+                    <span className="block text-[10px] font-semibold text-[#f87171] mt-0.5 animate-pulse">
+                      ⚠️ {r.warning}
+                    </span>
+                  )}
                 </span>
               </li>
             ))}
@@ -173,6 +178,13 @@ export function IncidentDetail({ id }: { id: string }) {
     api.incident(id).then((d) => {
       setInc(d);
       setExpl(d.explanation ?? null);
+      
+      // Auto-fetch feature attribution
+      setLoadingAttr(true);
+      api.attribution(id)
+        .then(setAttr)
+        .catch(console.error)
+        .finally(() => setLoadingAttr(false));
     });
   }, [id]);
 
@@ -285,6 +297,39 @@ export function IncidentDetail({ id }: { id: string }) {
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
+        {/* Business Impact Overlay */}
+        {inc.business_impact && inc.business_impact.status === "degraded" && (
+          <div className="rounded-xl border border-red-500/20 bg-[#2d1212]/20 p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-red-400">
+                <AlertTriangle size={13} className="text-red-400 animate-pulse" /> Business Impact Analysis
+              </span>
+              <span className="mono rounded bg-[#3d1313] px-2 py-0.5 text-[10px] uppercase font-bold text-red-300">
+                {inc.business_impact.status}
+              </span>
+            </div>
+            <p className="text-sm leading-relaxed text-red-200">{inc.business_impact.description}</p>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-lg bg-[#140b0b]/60 p-2.5 border border-red-900/30">
+                <div className="text-[10px] uppercase tracking-wider text-red-400/60 font-semibold">UPI Success Rate</div>
+                <div className="mono text-lg font-bold text-red-200 mt-0.5">{inc.business_impact.upi_success_rate}%</div>
+              </div>
+              <div className="rounded-lg bg-[#140b0b]/60 p-2.5 border border-red-900/30">
+                <div className="text-[10px] uppercase tracking-wider text-red-400/60 font-semibold">Card Auth Rate</div>
+                <div className="mono text-lg font-bold text-red-200 mt-0.5">{inc.business_impact.card_success_rate}%</div>
+              </div>
+              <div className="rounded-lg bg-[#140b0b]/60 p-2.5 border border-red-900/30">
+                <div className="text-[10px] uppercase tracking-wider text-red-400/60 font-semibold">Checkout Latency</div>
+                <div className="mono text-lg font-bold text-red-200 mt-0.5">{inc.business_impact.api_latency_ms}ms</div>
+              </div>
+              <div className="rounded-lg bg-[#140b0b]/60 p-2.5 border border-red-900/30">
+                <div className="text-[10px] uppercase tracking-wider text-red-400/60 font-semibold">Est. Revenue Loss</div>
+                <div className="mono text-lg font-bold text-red-200 mt-0.5">${inc.business_impact.revenue_loss_per_min}/min</div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* AI explanation */}
         <div className="rounded-xl border border-[#2a3b58] bg-gradient-to-b from-[#101a2b] to-[#0c1420] p-4">
           <div className="mb-2 flex items-center justify-between">
@@ -314,10 +359,10 @@ export function IncidentDetail({ id }: { id: string }) {
         </div>
 
         {/* model explainability (SHAP) */}
-        <div className="rounded-xl border border-[var(--border)] bg-[#0b111b] p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-              <Sparkles size={13} /> Model Explainability
+        <div className="rounded-xl border border-[#38bdf8]/10 bg-gradient-to-b from-[#0d1527] to-[#080d19] p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-blue-400">
+              <Sparkles size={13} className="text-blue-400 animate-pulse" /> Model Explainability
               {attr && (
                 <span
                   className={`ml-1 mono rounded px-1.5 py-0.5 text-[10px] font-bold ${
@@ -330,50 +375,86 @@ export function IncidentDetail({ id }: { id: string }) {
                 </span>
               )}
             </div>
-            {attr === null && (
+            {attr && (
+              <button
+                onClick={fetchAttr}
+                disabled={loadingAttr}
+                className="rounded-md bg-[#1c2b44] px-2 py-0.5 text-[10px] font-medium text-[#cfe0f2] hover:bg-[#233650] disabled:opacity-50"
+              >
+                {loadingAttr ? "Recalculating…" : "Recalculate"}
+              </button>
+            )}
+          </div>
+
+          {loadingAttr && attr === null && (
+            <div className="flex items-center gap-2 p-2 text-xs text-[var(--muted)]">
+              <div className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+              Computing SHAP feature attribution...
+            </div>
+          )}
+
+          {attr === null && !loadingAttr && (
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-[var(--muted)]">
+                Compute per-feature attribution for the detector on this node’s anomalous flows.
+              </p>
               <button
                 onClick={fetchAttr}
                 disabled={loadingAttr}
                 className="rounded-md bg-[#1c2b44] px-2.5 py-1 text-xs font-medium text-[#cfe0f2] hover:bg-[#233650] disabled:opacity-50"
               >
-                {loadingAttr ? "Computing…" : "Explain detector"}
+                Explain detector
               </button>
-            )}
-          </div>
-          {attr === null && !loadingAttr && (
-            <p className="text-xs text-[var(--muted)]">
-              Compute per-feature attribution for the detector on this node’s anomalous flows
-              (SHAP values over the Isolation Forest; falls back to baseline-deviation if SHAP is unavailable).
-            </p>
+            </div>
           )}
+
           {attr && (
-            <div>
+            <div className="space-y-3">
               {attr.signature?.mitre_id && (
-                <div className="mb-2 flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   <span className="mono rounded bg-[#3a1d1d] px-1.5 py-0.5 text-[10px] font-bold text-[#f87171]">
                     MITRE {attr.signature.mitre_id}
                   </span>
                   <span className="text-[11px] text-[#c6d4e6]">{attr.signature.label} — {attr.signature.mitre_name}</span>
                 </div>
               )}
-              <div className="space-y-1">
-                {attr.features.map((f) => {
-                  const max = Math.max(...attr.features.map((x) => x.contribution)) || 1;
-                  return (
-                    <div key={f.feature} className="flex items-center gap-2 text-[11px]">
-                      <span className="mono w-28 shrink-0 text-[#9fb4cc]">{f.feature}</span>
-                      <div className="relative h-2 flex-1 rounded bg-[#070b12]">
-                        <div
-                          className="absolute top-0 h-2 rounded"
-                          style={{ width: `${Math.min(100, (f.contribution / max) * 100)}%`, background: "#34d399" }}
-                        />
+
+              <p className="text-xs text-[#9fb4cc] leading-relaxed">
+                Feature attribution breakdown shows which network parameters deviated most from the model's normal baseline to trigger the anomaly:
+              </p>
+
+              <div className="space-y-2">
+                {(() => {
+                  const total = attr.features.reduce((sum, f) => sum + Math.abs(f.contribution), 0) || 1;
+                  return attr.features.map((f) => {
+                    const pct = Math.round((Math.abs(f.contribution) / total) * 100);
+                    const isPositive = f.contribution >= 0;
+                    return (
+                      <div key={f.feature} className="flex flex-col gap-1 rounded-lg bg-[#070b12]/50 p-2 border border-[var(--border)]">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="mono font-semibold text-[#9fb4cc]">{f.feature}</span>
+                          <span className="mono text-[var(--muted)] text-[10px]">
+                            value: <strong className="text-[#eef4fb]">{f.value}</strong> (vs baseline {f.baseline})
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="relative h-2 flex-1 rounded bg-[#070b12]">
+                            <div
+                              className="absolute top-0 h-2 rounded"
+                              style={{
+                                width: `${pct}%`,
+                                background: isPositive ? "linear-gradient(90deg, #f97316, #ef4444)" : "linear-gradient(90deg, #38bdf8, #2563eb)"
+                              }}
+                            />
+                          </div>
+                          <span className="mono w-16 text-right text-xs font-bold text-[#eef4fb]">
+                            {isPositive ? "+" : ""}{pct}%
+                          </span>
+                        </div>
                       </div>
-                      <span className="mono w-40 shrink-0 text-right text-[#c6d4e6]">
-                        {f.contribution} · obs {f.value} vs {f.baseline}
-                      </span>
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
               </div>
             </div>
           )}

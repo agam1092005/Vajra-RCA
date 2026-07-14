@@ -66,3 +66,4 @@ class Recommendation:
     tier: RiskTier
     reason: str
     requires_human_approval: bool = False
+    warning: str = ""

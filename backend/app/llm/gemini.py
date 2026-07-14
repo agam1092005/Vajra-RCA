@@ -10,8 +10,20 @@ from __future__ import annotations
 
 import json
 import time
+from pydantic import BaseModel, Field
 
 from ..core.config import settings
+
+
+class IncidentExplanation(BaseModel):
+    what: str = Field(description="Title or nature of the anomaly")
+    where: str = Field(description="The affected node or network location")
+    when: str = Field(description="Timestamp or timeframe when activity began")
+    why: str = Field(description="The root cause analysis justification")
+    supporting_evidence: list[str] = Field(default_factory=list, description="List of confirmed evidence items")
+    missing_evidence: list[str] = Field(default_factory=list, description="List of missing evidence items")
+    narrative: str = Field(description="A 3-4 sentence summary of the incident for operators")
+
 
 _SYSTEM = (
     "You are a senior network reliability engineer assisting with root-cause analysis. "
@@ -43,6 +55,10 @@ def deterministic_explanation(incident: dict) -> dict:
     conf = int(top.get("confidence", 0) * 100)
     why = (f"The engine ranks this cause at {conf}% confidence based on: "
            + ", ".join(f"{k} (+{v})" for k, v in top.get("score_breakdown", {}).items()) + ".")
+    bi = incident.get("business_impact", {})
+    bi_text = ""
+    if bi and bi.get("status") == "degraded":
+        bi_text = f" Business Impact: {bi.get('description')}"
     narrative = (
         f"What: {incident.get('title','Anomaly detected')}. "
         f"Where: {node}"
@@ -51,6 +67,7 @@ def deterministic_explanation(incident: dict) -> dict:
         + f"Why: {top.get('root_cause','unknown')} — {why} "
         + (f"Supporting evidence: {confirmed[0]} " if confirmed else "")
         + (f"Still missing: {missing[0]}" if missing else "")
+        + bi_text
     )
     return {
         "what": incident.get("title"), "where": node, "when": when,
@@ -72,7 +89,10 @@ def explain_incident(incident: dict) -> dict:
     try:
         resp = client.models.generate_content(
             model=settings.gemini_model, contents=prompt,
-            config={"response_mime_type": "application/json"},
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": IncidentExplanation,
+            },
         )
         data = json.loads(resp.text)
         data["generated_by"] = settings.gemini_model
@@ -109,6 +129,7 @@ def _slim(incident: dict) -> dict:
         "severity": incident.get("severity"), "summary": incident.get("summary"),
         "blast_radius": incident.get("blast_radius", {}).get("count"),
         "signal_counts": incident.get("signal_counts"),
+        "business_impact": incident.get("business_impact"),
         "hypotheses": [
             {k: h.get(k) for k in ("rank", "root_cause", "kind", "confidence", "score_breakdown",
                                     "confirmed_evidence", "correlated_signals", "missing_evidence")}

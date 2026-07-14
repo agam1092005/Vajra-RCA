@@ -30,6 +30,21 @@ def generate_and_upload_report(incident: dict) -> str:
         bucket_name = "vajra-reports"
         if not minio_client.bucket_exists(bucket_name):
             minio_client.make_bucket(bucket_name)
+        
+        # Set public read bucket policy
+        import json
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {"AWS": ["*"]},
+                    "Action": ["s3:GetObject"],
+                    "Resource": [f"arn:aws:s3:::{bucket_name}/*"]
+                }
+            ]
+        }
+        minio_client.set_bucket_policy(bucket_name, json.dumps(policy))
     except Exception as e:
         print(f"[MinIO] Connection warning: {e}. PDF will be generated but not uploaded.")
         minio_client = None
@@ -105,17 +120,25 @@ def generate_and_upload_report(incident: dict) -> str:
             recs = h.get("recommendations", [])
             if recs:
                 recs_bullets = []
+                table_cell_style = ParagraphStyle(
+                    'TableCellStyle',
+                    parent=styles['Normal'],
+                    fontSize=8,
+                    leading=10,
+                    textColor=colors.HexColor('#475569')
+                )
                 for r in recs:
-                    appr = " (Requires Approval)" if r.get("requires_human_approval") else ""
-                    recs_bullets.append([f"• {r.get('action')}{appr}", f"Reason: {r.get('reason')}"])
+                    appr = " <b>(Requires Approval)</b>" if r.get("requires_human_approval") else ""
+                    warn = f"<br/><font color='#ef4444'><b>⚠️ {r.get('warning')}</b></font>" if r.get("warning") else ""
+                    action_text = f"• {r.get('action')}{appr}{warn}"
+                    action_para = Paragraph(action_text, table_cell_style)
+                    reason_para = Paragraph(f"Reason: {r.get('reason')}", table_cell_style)
+                    recs_bullets.append([action_para, reason_para])
                 
-                t = Table(recs_bullets, colWidths=[200, 320])
+                t = Table(recs_bullets, colWidths=[240, 280])
                 t.setStyle(TableStyle([
                     ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                    ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
-                    ('FONTSIZE', (0,0), (-1,-1), 8),
-                    ('TEXTCOLOR', (0,0), (-1,-1), colors.HexColor('#475569')),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 6),
                 ]))
                 story.append(t)
             story.append(Spacer(1, 6))
@@ -128,13 +151,20 @@ def generate_and_upload_report(incident: dict) -> str:
         story.append(Paragraph("No events in timeline.", body_style))
     else:
         timeline_data = [["Time", "Source", "Type", "Description"]]
+        timeline_cell_style = ParagraphStyle(
+            'TimelineCellStyle',
+            parent=styles['Normal'],
+            fontSize=8,
+            leading=10,
+            textColor=colors.HexColor('#334155')
+        )
         for t in timeline:
-            timeline_data.append([
-                t.get("time", ""),
-                t.get("source", ""),
-                t.get("type", "").replace("_", " "),
-                t.get("text", "")[:75]
-            ])
+            time_para = Paragraph(t.get("time", ""), timeline_cell_style)
+            src_para = Paragraph(t.get("source", ""), timeline_cell_style)
+            type_para = Paragraph(t.get("type", "").replace("_", " "), timeline_cell_style)
+            desc_para = Paragraph(t.get("text", ""), timeline_cell_style)
+            timeline_data.append([time_para, src_para, type_para, desc_para])
+            
         t_table = Table(timeline_data, colWidths=[65, 75, 85, 295])
         t_table.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f1f5f9')),
@@ -143,8 +173,6 @@ def generate_and_upload_report(incident: dict) -> str:
             ('BOTTOMPADDING', (0,0), (-1,0), 6),
             ('VALIGN', (0,0), (-1,-1), 'TOP'),
             ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
-            ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
-            ('FONTSIZE', (0,0), (-1,-1), 8),
             ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#f8fafc')]),
         ]))
         story.append(t_table)

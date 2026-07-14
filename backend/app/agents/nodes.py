@@ -214,6 +214,17 @@ def report_node(state: AgentState) -> dict[str, Any]:
             })
     temp_incident["timeline"] = sorted(temp_incident["timeline"], key=lambda x: x["timestamp"])[:20]
 
+    topo = _get_topo()
+    engine = RCAEngine(topo) if topo is not None else RCAEngine(TopologyGraph())
+    br_dict = {
+        "impacted": state["dependencies"].get("blast_radius_nodes", []),
+        "count": state["dependencies"].get("blast_radius_count", 0),
+        "depth": len(state["dependencies"].get("levels", [])),
+        "levels": state["dependencies"].get("levels", [])
+    }
+    business_impact = engine._calculate_business_impact(state["focal_node"], state["hypotheses"], br_dict)
+    temp_incident["business_impact"] = business_impact
+
     # Use the fast deterministic explanation here so the pipeline never blocks
     # incident creation/emission on a live LLM round-trip. The richer Gemini
     # narrative is generated on demand via POST /api/incidents/{id}/explain.
@@ -225,12 +236,7 @@ def report_node(state: AgentState) -> dict[str, Any]:
         "severity": temp_incident["hypotheses"][0].get("severity", "high") if temp_incident["hypotheses"] else "high",
         "summary": temp_incident["hypotheses"][0].get("explanation", temp_incident["summary"]) if temp_incident["hypotheses"] else temp_incident["summary"],
         "explanation": explanation,
-        "blast_radius": {
-            "impacted": state["dependencies"].get("blast_radius_nodes", []),
-            "count": state["dependencies"].get("blast_radius_count", 0),
-            "depth": len(state["dependencies"].get("levels", [])),
-            "levels": state["dependencies"].get("levels", [])
-        },
+        "blast_radius": br_dict,
         "rag_docs": state["rag_documents"]
     }
     

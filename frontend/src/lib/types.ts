@@ -12,6 +12,7 @@ export interface Recommendation {
   tier: "diagnostic" | "low_risk" | "high_impact";
   reason: string;
   requires_human_approval: boolean;
+  warning?: string;
 }
 
 export interface Hypothesis {
@@ -57,6 +58,17 @@ export interface TimelineItem {
   source: string;
 }
 
+export interface BusinessImpact {
+  status: string;
+  upi_success_rate: number;
+  card_success_rate: number;
+  api_latency_ms: number;
+  order_throughput_ops?: number;
+  revenue_loss_per_min: number;
+  description?: string;
+  affected_flow?: string;
+}
+
 export interface Incident {
   incident_id: string;
   focal_node: string;
@@ -73,6 +85,7 @@ export interface Incident {
   status: string;
   explanation?: Explanation;
   report_url?: string;
+  business_impact?: BusinessImpact;
 }
 
 export interface IncidentSummary {
@@ -104,6 +117,7 @@ export interface Metrics {
   window_size: number;
   open_incidents: number;
   hot_node: string;
+  business_impact?: BusinessImpact;
 }
 
 export interface AgentStep {

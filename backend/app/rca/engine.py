@@ -156,28 +156,26 @@ class RCAEngine:
 
             if confidence > 0.3:
                 status = "degraded"
-                # Redis / Cache Node OR DB Node
+                
+                # Derive a dynamic severity scaling coefficient (0.2 to 1.0)
+                # based on blast radius count and number of impacted nodes
+                blast_count = br.get("count", 1)
+                severity_factor = min(1.0, max(0.2, (blast_count * 0.15) + 0.2))
+                
+                # Calculate metrics dynamically using the severity scaling factor
+                success_rate = round(99.4 - (severity_factor * 50.0), 1)
+                latency_ms = round(85.0 + (severity_factor * 1500.0), 1)
+                order_throughput = round(15.0 - (severity_factor * 12.0), 1)
+                revenue_loss = round(severity_factor * 150.0, 1)
+
                 if kind == "config_change" or "redis" in root_cause.lower() or "database" in root_cause.lower():
-                    success_rate = 58.2
-                    latency_ms = 1420.0
-                    order_throughput = 3.5
-                    revenue_loss = 120.0 # $ per minute
-                    impact_description = f"Redis cache eviction and network database anomalies caused a 41.2% drop in successful UPI payments, spiking API latency to {latency_ms}ms and causing an estimated revenue loss of ${revenue_loss}/min."
+                    impact_description = f"Configuration update on {focal_node} created downstream performance bottleneck, dropping payment success rate to {success_rate}% and causing an estimated revenue loss of ${revenue_loss}/min."
                     affected_flow = "Checkout -> Payment Gateway"
                 elif kind == "attack":
-                    success_rate = 74.5
-                    latency_ms = 650.0
-                    order_throughput = 8.2
-                    revenue_loss = 45.0
-                    impact_description = f"External malicious DDoS/flooding attack on {focal_node} disrupted downstream payment gateways, reducing successful payment rate by 24.9%."
+                    impact_description = f"External security signal anomaly on {focal_node} disrupted transaction processing queue, reducing successful payment rate to {success_rate}%."
                     affected_flow = "External API Ingestion"
                 else:
-                    # General dependency cascade
-                    success_rate = 82.1
-                    latency_ms = 410.0
-                    order_throughput = 10.5
-                    revenue_loss = 25.0
-                    impact_description = f"Cascading dependency degradation on {focal_node} affected transaction processing API, dropping success rate by 17.3%."
+                    impact_description = f"Cascading topology degradation originating from {focal_node} affected database connection pool, dropping payment success rate to {success_rate}%."
                     affected_flow = "Internal Transaction Processing"
 
         return {

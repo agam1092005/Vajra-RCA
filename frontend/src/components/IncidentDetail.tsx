@@ -359,10 +359,10 @@ export function IncidentDetail({ id }: { id: string }) {
         </div>
 
         {/* model explainability (SHAP) */}
-        <div className="rounded-xl border border-[#38bdf8]/10 bg-gradient-to-b from-[#0d1527] to-[#080d19] p-4">
+        <div className="rounded-xl border border-[var(--border)] bg-gradient-to-b from-[var(--panel)] to-[#030712] p-4">
           <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-blue-400">
-              <Sparkles size={13} className="text-blue-400 animate-pulse" /> Model Explainability
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--text)]">
+              <Sparkles size={13} className="text-[#d4d4d4]" /> Model Explainability
               {attr && (
                 <span
                   className={`ml-1 mono rounded px-1.5 py-0.5 text-[10px] font-bold ${

@@ -276,10 +276,10 @@ export default function Dashboard() {
       <div className="p-3 pb-3">
         <button
           onClick={() => setBizOpen(!bizOpen)}
-          className="flex w-full items-center justify-between rounded-lg bg-[#0d1527]/40 border border-[#38bdf8]/10 px-4 py-2 hover:bg-[#0d1527]/80 hover:border-[#38bdf8]/20 transition-all duration-200"
+          className="flex w-full items-center justify-between rounded-lg bg-[var(--panel)] border border-[var(--border)] px-4 py-2 hover:bg-[#121212] transition-all duration-200"
         >
           <div className="flex items-center gap-2">
-            <CreditCard size={14} className="text-blue-400" />
+            <CreditCard size={14} className="text-[var(--muted)]" />
             <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--muted)]">
               Business Operations Overlay - Payment example
             </span>

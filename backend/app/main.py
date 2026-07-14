@@ -114,6 +114,14 @@ async def incident_audit(incident_id: str) -> list[dict]:
     return to_jsonable(await store.audit_trail(incident_id))
 
 
+@api.get("/api/incidents/{incident_id}/attribution")
+async def incident_attribution(incident_id: str) -> dict:
+    inc = await store.get_incident(incident_id)
+    if not inc:
+        raise HTTPException(404, "incident not found")
+    return await asyncio.to_thread(pipeline.shap_attribution, inc["focal_node"])
+
+
 @api.post("/api/incidents/{incident_id}/explain")
 async def explain(incident_id: str) -> dict:
     inc = await store.get_incident(incident_id)

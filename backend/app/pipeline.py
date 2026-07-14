@@ -386,6 +386,46 @@ class Pipeline:
 
             await asyncio.sleep(0.12)
 
+    # ---------- explainability ----------
+    def shap_attribution(self, node: str, max_rows: int = 50) -> dict:
+        """Model-faithful SHAP attribution for a node's anomalous flows, with a
+        graceful fallback to baseline-deviation attribution if shap is unavailable."""
+        rows = self._replay_rows
+        if rows is None:
+            return {"method": "baseline_deviation", "features": [], "signature": {}}
+        sub = rows[(rows["dstip"] == node) & (rows["is_anomaly"] == 1)].head(max_rows)
+        if sub.empty:
+            sub = rows[rows["dstip"] == node].head(max_rows)
+        feats = self.detector.features
+        from .detection.signatures import classify as _classify
+        attr0 = sub.iloc[0].get("attribution") if len(sub) else []
+        signature = _classify(attr0 if isinstance(attr0, list) else [])
+        try:
+            import shap  # optional heavy dep
+            import numpy as np
+            x = self.detector.scaler.transform(self.detector._matrix(sub))
+            explainer = shap.TreeExplainer(self.detector.model)
+            vals = explainer.shap_values(x)
+            mean_abs = np.abs(vals).mean(axis=0)
+            order = np.argsort(-mean_abs)[:8]
+            mean_raw = self.detector.scaler.mean_
+            raw = self.detector._matrix(sub).mean(axis=0)
+            features = [{"feature": feats[j], "contribution": round(float(mean_abs[j]), 4),
+                         "value": round(float(raw[j]), 4), "baseline": round(float(mean_raw[j]), 4)}
+                        for j in order]
+            return {"method": "shap", "features": features, "signature": signature}
+        except Exception:
+            agg: dict[str, dict] = {}
+            for _, r in sub.iterrows():
+                for a in (r.get("attribution") or []):
+                    cur = agg.get(a["feature"])
+                    if cur is None or abs(a["z"]) > abs(cur["z"]):
+                        agg[a["feature"]] = a
+            features = [{"feature": a["feature"], "contribution": round(abs(a["z"]), 4),
+                         "value": a["value"], "baseline": a["baseline"]}
+                        for a in sorted(agg.values(), key=lambda a: abs(a["z"]), reverse=True)[:8]]
+            return {"method": "baseline_deviation", "features": features, "signature": signature}
+
     # ---------- snapshots for the UI ----------
     def metrics_snapshot(self) -> dict:
         now = time.time()

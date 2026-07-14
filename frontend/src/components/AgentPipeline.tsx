@@ -28,6 +28,7 @@ export function AgentPipeline({
   focalNode?: string | null;
   done?: boolean;
 }) {
+  const isIdle = !currentNode && !done;
   const currentIndex = done
     ? AGENT_STAGES.length
     : AGENT_STAGES.findIndex((s) => s.key === currentNode);
@@ -36,8 +37,18 @@ export function AgentPipeline({
     <div className="border-b border-[var(--border)] bg-[#0f0f11] px-5 py-2.5">
       <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
         <span className="flex items-center gap-1.5 text-[var(--accent)]">
-          {done ? <Check size={13} /> : <Loader2 size={13} className="animate-spin" />}
-          {done ? "Analysis complete" : "Multi-agent analysis running"}
+          {isIdle ? (
+            <span className="h-2 w-2 rounded-full bg-[var(--muted)] animate-pulse" />
+          ) : done ? (
+            <Check size={13} />
+          ) : (
+            <Loader2 size={13} className="animate-spin" />
+          )}
+          {isIdle
+            ? "Diagnostic Pipeline: Standby"
+            : done
+            ? "Analysis complete"
+            : "Multi-agent analysis running"}
         </span>
         {focalNode && <span className="mono normal-case text-[var(--text)]">· {focalNode}</span>}
       </div>

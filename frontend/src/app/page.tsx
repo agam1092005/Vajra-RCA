@@ -253,13 +253,11 @@ export default function Dashboard() {
       </header>
 
       {/* live multi-agent pipeline stepper */}
-      {(agentStep || runComplete) && (
-        <AgentPipeline
-          currentNode={agentStep?.node ?? null}
-          focalNode={agentStep?.focal_node ?? runComplete?.focal ?? null}
-          done={!agentStep && !!runComplete}
-        />
-      )}
+      <AgentPipeline
+        currentNode={agentStep?.node ?? null}
+        focalNode={agentStep?.focal_node ?? runComplete?.focal ?? null}
+        done={!agentStep && !!runComplete}
+      />
 
       {/* stat tiles */}
       <div className="p-3 pb-0">

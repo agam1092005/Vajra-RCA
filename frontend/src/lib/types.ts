@@ -86,6 +86,12 @@ export interface Metrics {
   hot_node: string;
 }
 
+export interface AgentStep {
+  node: string;
+  focal_node: string;
+  ts: number;
+}
+
 export interface TopologyData {
   nodes: { id: string; role: string; flows: number }[];
   edges: { source: string; target: string; flows: number; attack_flows: number; service: string }[];

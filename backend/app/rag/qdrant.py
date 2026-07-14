@@ -1,10 +1,11 @@
 """Qdrant client and RAG system.
 
 Indexes runbooks, troubleshooting manuals, and SOPs.
-Uses Google Gemini text embeddings (text-embedding-004).
-When Gemini is unavailable, uses a STABLE TF-IDF-style hash that produces
-consistent vectors across process restarts (PYTHONHASHSEED is bypassed by
-using hashlib, not Python's built-in hash()).
+Embeddings are a STABLE, local TF-IDF-style hash (PYTHONHASHSEED is bypassed by
+using hashlib, not Python's built-in hash()) — never a live LLM call. Retrieval
+runs synchronously on every incident's critical path (`agents/nodes.py::rag_node`),
+so it must be instant and deterministic; the LLM's role is narrative synthesis
+only (`llm/gemini.py`), generated on demand, never on the incident-creation path.
 """
 from __future__ import annotations
 
@@ -180,25 +181,16 @@ class RAGClient:
             self.client = None
 
     def _get_embedding(self, text: str) -> list[float]:
-        """Return an embedding vector.
+        """Return an embedding vector via the stable local hash (see module docstring).
 
-        Priority:
-          1. Google text-embedding-004 (requires VAJRA_GOOGLE_API_KEY)
-          2. Stable hash embedding (consistent across restarts, no API needed)
+        Deliberately does NOT call a live embedding API here: this method is on the
+        incident hot path (`rag_node` runs it for every incident, synchronously,
+        before the incident can be emitted). A live LLM round-trip there risks
+        socket timeouts / a frozen UI under rate limits or latency spikes. Indexing
+        and querying must also share one embedding function for cosine similarity
+        to mean anything, so the seed step below and every live query both use this
+        same fast, deterministic function.
         """
-        if settings.google_api_key and settings.google_api_key != "YOUR_GOOGLE_API_KEY_HERE":
-            try:
-                from google import genai
-                client = genai.Client(api_key=settings.google_api_key)
-                resp = client.models.embed_content(
-                    model="text-embedding-004",
-                    contents=text,
-                )
-                return resp.embeddings[0].values
-            except Exception as e:
-                print(f"[Qdrant] Embeddings API error: {e}. Using stable hash fallback.")
-
-        # Stable deterministic fallback — consistent across process restarts
         return _stable_hash_embedding(text)
 
     def _seed_sops(self) -> None:

@@ -32,7 +32,7 @@ def _client():
         return None
 
 
-def _deterministic_explanation(incident: dict) -> dict:
+def deterministic_explanation(incident: dict) -> dict:
     hyps = incident.get("hypotheses", [])
     top = hyps[0] if hyps else {}
     node = incident.get("focal_node", "the affected node")
@@ -61,7 +61,7 @@ def _deterministic_explanation(incident: dict) -> dict:
 
 def explain_incident(incident: dict) -> dict:
     client = _client()
-    base = _deterministic_explanation(incident)
+    base = deterministic_explanation(incident)
     if client is None:
         return base
     prompt = (

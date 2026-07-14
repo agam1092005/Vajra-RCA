@@ -260,7 +260,10 @@ class Pipeline:
         return None
 
     async def _run_agents(self, node: str, related: list[Event]) -> dict:
-        """Execute LangGraph multi-agent pipeline in threadpool."""
+        """Execute the LangGraph multi-agent pipeline in a worker thread, streaming
+        an `agent_step` event per node so the UI can show live progress instead of
+        freezing for the full 8-node run (Coordinator..Report can take several
+        seconds once Neo4j/Qdrant/Gemini round-trips are involved)."""
         initial_state = {
             "focal_node":   node,
             "raw_events":   related,
@@ -273,8 +276,21 @@ class Pipeline:
             "hypotheses":   [],
             "final_report": {},
         }
-        res_state = await asyncio.to_thread(agent_graph.invoke, initial_state)
-        return res_state["final_report"]
+        loop = asyncio.get_running_loop()
+
+        def _run_stream() -> dict:
+            state = dict(initial_state)
+            for step in agent_graph.stream(initial_state, stream_mode="updates"):
+                for node_name, update in step.items():
+                    state.update(update)
+                    loop.call_soon_threadsafe(
+                        self.emit, "agent_step",
+                        {"node": node_name, "focal_node": node, "ts": time.time()},
+                    )
+            return state
+
+        final_state = await asyncio.to_thread(_run_stream)
+        return final_state["final_report"]
 
     # ---------- demo trigger: real config change ----------
     async def inject_config_change(self, node: str | None = None) -> dict:

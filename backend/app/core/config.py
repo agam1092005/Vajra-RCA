@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # ---- paths ----
     datasets_dir: Path = DEFAULT_DATASETS
-    var_dir: Path = BACKEND_DIR / "var"          # sqlite db, runtime state (git-ignored)
+    var_dir: Path = BACKEND_DIR / "var"          # runtime state, e.g. the config-monitor git repo (git-ignored)
     config_repo_dir: Path = BACKEND_DIR / "var" / "demo-config"  # real git repo watched for config changes
 
     # ---- server ----
@@ -90,10 +90,6 @@ class Settings(BaseSettings):
     @property
     def hdfs_anomaly_labels(self) -> Path:
         return self.datasets_dir / "HDFS" / "HDFS_v1" / "preprocessed" / "anomaly_label.csv"
-
-    @property
-    def db_path(self) -> Path:
-        return self.var_dir / "vajra_rca.sqlite"
 
 
 settings = Settings()

@@ -9,6 +9,7 @@ type Handlers = {
   onAlert?: (a: unknown) => void;
   onAnomaly?: (a: unknown) => void;
   onConfigChange?: (c: unknown) => void;
+  onAgentStep?: (s: unknown) => void;
 };
 
 export function useSocket(handlers: Handlers) {
@@ -27,6 +28,7 @@ export function useSocket(handlers: Handlers) {
     socket.on("alert", (d) => h.current.onAlert?.(d));
     socket.on("anomaly", (d) => h.current.onAnomaly?.(d));
     socket.on("config_change", (d) => h.current.onConfigChange?.(d));
+    socket.on("agent_step", (d) => h.current.onAgentStep?.(d));
     return () => {
       socket.close();
     };

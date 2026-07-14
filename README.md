@@ -22,11 +22,11 @@ recommendations, and a non-repudiable audit trail.
 | Ingest telemetry, logs, alerts, topology, config changes | Adapters for UNSW-NB15 flows (real IPs/ports/timestamps), NSL-KDD, HDFS logs, and a git-backed config-change monitor |
 | Detect anomalies across time windows | Isolation Forest (scikit-learn) fit on real baselines + a 5-minute correlation window |
 | Correlate signals, avoid time-based blame | Deterministic causal scoring using the real dependency graph + temporal ordering |
-| Use topology / dependency data | NetworkX dependency graph built from real observed IP communication; upstream/downstream/blast-radius traversal |
+| Use topology / dependency data | Neo4j dependency graph built from real observed IP communication; upstream/downstream/blast-radius traversal |
 | Ranked root-cause hypotheses w/ evidence | `RCAEngine` produces ranked hypotheses, each with a decomposable score breakdown |
 | Separate Confirmed / Correlated / Missing evidence | First-class tri-categorized evidence classifier |
 | Incident timeline | Synchronized, multi-source chronological timeline per incident |
-| Recommend next steps + auditable trail | Risk-tiered recommendations (diagnostic / low-risk / high-impact) + SQLite audit ledger |
+| Recommend next steps + auditable trail | Risk-tiered recommendations (diagnostic / low-risk / high-impact) + PostgreSQL audit ledger |
 
 The intellectual core is the **Correlation & Causal Inference engine**: it moves beyond
 "these happened at the same time" by weighting a config change's timing, the real
@@ -41,16 +41,23 @@ independent corroboration — producing a transparent Causal Confidence Score ou
  Real sources ─────────────────────────────────────────────┐
    • UNSW-NB15 flows (telemetry + security alerts + IPs)    │
    • NSL-KDD (labelled traffic, detector training/validation)│
-   • HDFS logs (+ block-level anomaly ground truth)          ├─▶ Event Bus ─▶ Detection ─▶ RCA Engine ─▶ API + Socket.IO ─▶ Dashboard
-   • Config-change monitor (real git repo: actor/diff/time)  │      (in-proc)   (Isolation   (topology +      (FastAPI)         (Next.js)
-                                                              │                  Forest)     causal scoring
- Live replay puts real records on the wall clock ────────────┘                              + evidence)
+   • HDFS logs (+ block-level anomaly ground truth)          ├─▶ Kafka ─▶ Detection ─▶ LangGraph RCA ─▶ API + Socket.IO ─▶ Dashboard
+   • Config-change monitor (real git repo: actor/diff/time)  │            (Isolation      (8-agent          (FastAPI)         (Next.js)
+                                                              │            Forest +       pipeline: causal
+ Live replay puts real records on the wall clock ────────────┘            Kitsune)       scoring + evidence
+                                                                                          + GraphRAG runbooks)
 ```
 
-- **Backend** — FastAPI + Socket.IO, Python 3.12. Ingestion, Isolation Forest detection,
-  NetworkX topology, the causal RCA engine, Gemini explanations (optional), SQLite audit.
+- **Backend** — FastAPI + Socket.IO, Python 3.12. Ingestion, Isolation Forest + Kitsune
+  detection, Neo4j topology, a LangGraph 8-agent causal RCA engine, GraphRAG (Qdrant +
+  Neo4j) runbook retrieval, Gemini explanations (optional, on-demand only), Postgres
+  audit ledger.
 - **Frontend** — Next.js + Tailwind + React Flow (topology) + Recharts (live metrics),
-  live-updating over Socket.IO.
+  live-updating over Socket.IO — including live per-agent-step progress while an
+  incident is being diagnosed.
+- **Infra** — Postgres, Neo4j, Qdrant, Kafka, Elasticsearch, Prometheus, Grafana, MinIO
+  via `docker compose up -d` (see `docker-compose.yml`). The backend requires Postgres
+  and Neo4j to be reachable at startup.
 
 See [`docs/architecture.md`](docs/architecture.md) and [`docs/system-features.md`](docs/system-features.md).
 
@@ -58,6 +65,9 @@ See [`docs/architecture.md`](docs/architecture.md) and [`docs/system-features.md
 
 ## Prerequisites
 
+- **Docker Desktop** — runs Postgres, Neo4j, Qdrant, Kafka, Elasticsearch, Prometheus,
+  Grafana, MinIO (see [`docs/demo-runbook.md`](docs/demo-runbook.md) for the full stack
+  and disk footprint; check free disk before pulling all 8 images alongside the datasets)
 - **Python 3.12** (the host default 3.14 lacks some ML wheels; this repo pins 3.12)
 - **Node.js 20+** and npm
 - [`uv`](https://github.com/astral-sh/uv) (fast Python env/installer) — optional but recommended
@@ -83,7 +93,14 @@ Override the location with `VAJRA_DATASETS_DIR=/path/to/datasets`.
 
 ## Quick start
 
-### 1. Backend
+### 1. Infrastructure
+
+```bash
+docker compose up -d
+docker compose ps        # wait until all services show "healthy" (~60s)
+```
+
+### 2. Backend
 
 ```bash
 cd backend
@@ -92,14 +109,15 @@ uv pip install --python .venv/bin/python -e .
 .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-The API comes up on `http://localhost:8000`. On startup it loads real UNSW flows,
-builds the topology, fits the detector, and begins live replay. Check readiness:
+The API comes up on `http://localhost:8000`. On startup it connects to Postgres,
+Neo4j and Qdrant, loads real UNSW flows, builds the topology, fits the detector, and
+is ready to replay. Check readiness:
 
 ```bash
 curl http://localhost:8000/api/health        # {"status":"ok","ready":true}
 ```
 
-### 2. Frontend
+### 3. Frontend
 
 ```bash
 cd frontend
@@ -110,7 +128,7 @@ npm run dev            # http://localhost:3000
 Open **http://localhost:3000**. You'll see live signal rates, the dependency topology,
 and incidents appearing in real time.
 
-### 3. Trigger the flagship incident
+### 4. Trigger the flagship incident
 
 Click **"Inject Config Change"** (or `POST /api/inject/config-change`). This makes a
 **real git commit** to the monitored config repo, then correlates it against the real
@@ -160,7 +178,8 @@ Frontend: `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`) in `frontend/.
 | GET | `/api/incidents/{id}/audit` | audit trail |
 | POST | `/api/inject/config-change` | make a real config change and correlate |
 
-Socket.IO events: `metrics`, `incident`, `alert`, `anomaly`, `config_change`.
+Socket.IO events: `metrics`, `incident`, `alert`, `anomaly`, `config_change`, `agent_step`
+(per-node progress while the LangGraph pipeline diagnoses an incident).
 
 ---
 
@@ -182,22 +201,29 @@ cd backend && .venv/bin/python -m scripts.validate_detector
 vajra-rca/
 ├── backend/app/
 │   ├── ingestion/   # unsw, nsl_kdd, hdfs, config_monitor
-│   ├── detection/   # isolation_forest
-│   ├── graph/       # topology (NetworkX)
+│   ├── detection/   # isolation_forest, kitsune
+│   ├── graph/       # topology (Neo4j)
+│   ├── agents/      # LangGraph 8-agent diagnostic pipeline
+│   ├── rag/         # graphrag (Qdrant + Neo4j)
 │   ├── rca/         # scoring + engine (correlation & causal inference)
-│   ├── llm/         # gemini (+ deterministic fallback)
-│   ├── db/          # SQLite audit ledger
-│   ├── core/        # config, events, serialization
+│   ├── llm/         # gemini (on-demand explanations/chat only, + deterministic fallback)
+│   ├── db/          # PostgreSQL audit ledger
+│   ├── core/        # config, events (Kafka), serialization
 │   ├── pipeline.py  # live replay orchestrator
 │   └── main.py      # FastAPI + Socket.IO
 ├── frontend/        # Next.js dashboard
+├── docker-compose.yml  # Postgres, Neo4j, Qdrant, Kafka, Elasticsearch, Prometheus, Grafana, MinIO
 └── docs/            # architecture + system features
 ```
 
 ## Roadmap
 
-The prototype runs natively with embedded backends (NetworkX, SQLite, in-process bus) to
-stay light. The production path swaps these for the full stack without changing
-interfaces: Neo4j (topology), Kafka (event bus), Postgres (ledger), Qdrant + GraphRAG
-(similar-incident retrieval), Prometheus/OpenTelemetry/Elasticsearch (live telemetry),
-and a LangGraph multi-agent RCA pipeline. See `docs/architecture.md`.
+The full target stack — Neo4j (topology), Kafka (event bus), Postgres (ledger), Qdrant +
+GraphRAG (similar-incident retrieval), and a LangGraph multi-agent RCA pipeline — is
+already wired up via `docker compose up -d`. **Not yet wired**: Prometheus is configured
+to scrape the backend at `host.docker.internal:8000` (`infra/prometheus.yml`) and the
+OTel collector is configured to export metrics/logs to Prometheus/Elasticsearch
+(`infra/otel-collector.yaml`), but the backend has no OpenTelemetry SDK or
+Prometheus-format `/metrics` endpoint yet — it only exposes the dashboard's JSON
+`/api/metrics`. Until the backend is instrumented, those three services run but carry no
+real application telemetry. See `docs/architecture.md`.

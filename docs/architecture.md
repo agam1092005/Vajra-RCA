@@ -19,42 +19,49 @@ Ingest Signals → Detect Anomalies → Map Dependencies → Correlate Cross-Lay
 Existing detection components become **passive diagnostic signal producers** feeding a
 central correlation/RCA engine, rather than triggers for mitigation.
 
-## Runtime (this prototype)
+## Runtime (current)
 
-Constrained to run natively (no heavy infra) while preserving the target design:
+The prototype now runs on the full target infra via `docker compose up -d`
+(`docker-compose.yml`): Postgres, Neo4j, Qdrant, Kafka, Elasticsearch, Prometheus,
+OTel-collector, Grafana, MinIO. The backend will not start without Postgres and
+Neo4j reachable — `db/store.py` and `graph/topology.py` retry for ~30s then raise.
 
-| Concern | Prototype | Production target |
-|---|---|---|
-| Event bus | in-process async bus (`core/events.py`) | Apache Kafka |
-| Topology graph | NetworkX (`graph/topology.py`) | Neo4j |
-| Incident ledger | SQLite (`db/store.py`) | PostgreSQL |
-| Similar-incident retrieval | history match | Qdrant + Neo4j **GraphRAG** |
-| Telemetry | dataset replay on a live clock | Prometheus + OpenTelemetry + Elasticsearch |
-| RCA orchestration | direct engine | LangGraph multi-agent |
-| Explanations | Gemini + deterministic fallback | Gemini 2.5 Pro |
+| Concern | Implementation |
+|---|---|
+| Event bus | `core/events.py` — publishes to Kafka; degrades to in-memory pub/sub if Kafka is unreachable |
+| Topology graph | Neo4j (`graph/topology.py`), built from real observed UNSW IP communication |
+| Incident ledger | PostgreSQL (`db/store.py`), async via `asyncpg` |
+| Similar-incident / runbook retrieval | Qdrant + Neo4j **GraphRAG** (`rag/graphrag.py`, `rag/qdrant.py`) |
+| Vector embeddings | a stable local hash function — deliberately not a live LLM call, since retrieval sits on the incident hot path (see `rag/qdrant.py`) |
+| Telemetry | dataset replay on a live clock |
+| RCA orchestration | LangGraph 8-agent pipeline (`agents/graph.py`): Coordinator → Metric → Log → Trace → Graph → RAG → RootCause → Report, streamed node-by-node so the UI can show live progress |
+| Explanations | deterministic template inline on the incident-creation path; Gemini narrative generated on demand via `POST /api/incidents/{id}/explain` (never blocks incident creation) |
+| Reports | PDF generated on demand and uploaded to MinIO (`utils/reporter.py`) |
 
-Interfaces are stable across the swap: producers call `bus.publish`, topology exposes the
-same traversal methods, and the RCA engine consumes normalized `Event`s regardless of the
-underlying store.
+Disk note: the full Docker image set (Postgres, Neo4j, Qdrant, Kafka, Elasticsearch,
+Prometheus, Grafana, MinIO) needs several GB beyond the ~24GB datasets already on
+disk — check free space before `docker compose up -d` if disk is constrained.
 
 ## Data flow
 
 ```
 UNSW-NB15 flows ─┐
-NSL-KDD          ├─▶ ingestion adapters ─▶ normalized Events ─▶ in-proc bus
+NSL-KDD          ├─▶ ingestion adapters ─▶ normalized Events ─▶ Kafka event bus
 HDFS logs        │                                                   │
 config monitor ──┘ (real git commits)                               ▼
-                                              Isolation Forest + labels ─▶ anomalies
+                                     Isolation Forest + Kitsune + labels ─▶ anomalies
                                                                     │
-                          topology (real IP graph) ────────────────┤
+                       topology (real IP graph, Neo4j) ────────────┤
                                                                     ▼
-                                    RCA engine: correlation window + causal scoring
-                                        + tri-categorized evidence + recommendations
+                            LangGraph 8-agent pipeline: correlation window + causal
+                            scoring + tri-categorized evidence + GraphRAG runbooks
                                                                     │
-                                     SQLite audit ◀────────────────┤
-                                     Gemini explanation ◀───────────┤
+                                Postgres audit ◀────────────────────┤
+                        deterministic explanation (fast) ◀──────────┤
                                                                     ▼
                                         FastAPI REST + Socket.IO ─▶ Next.js dashboard
+                                                                    │
+                        Gemini narrative (on demand, via /explain) ┘
 ```
 
 ## Causal scoring (decomposable)

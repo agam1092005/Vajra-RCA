@@ -58,6 +58,6 @@ Consumes heterogeneous signals simultaneously and normalizes them into one event
 ## 6. Remediation & Audit Layer — the active output
 - **Next-step recommendations** — risk-tiered: **diagnostic**, **low-risk**, and
   **high-impact** (the last requires human approval). Generated per hypothesis.
-- **Auditable incident trail** — a SQLite ledger (`db/store.py`) recording incidents,
+- **Auditable incident trail** — a PostgreSQL ledger (`db/store.py`) recording incidents,
   hypotheses, evidence, recommendations, human actions, and resolution state; supports
   compliance audits, post-incident review and historical comparison.

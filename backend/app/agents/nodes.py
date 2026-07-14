@@ -37,9 +37,18 @@ def _get_topo() -> TopologyGraph | None:
     return _topo
 
 
+MAX_RAW_EVENTS = 300   # bound state size regardless of how wide the caller's window was
+MAX_LOG_ENTRIES = 40
+MAX_TRACE_SPANS = 40
+
+
 def coordinator_node(state: AgentState) -> dict[str, Any]:
     print(f"[Coordinator] Initiating root-cause diagnostic graph for node: {state['focal_node']}")
-    return {}
+    # Distill to the most recent N events up front so every downstream node —
+    # and anything later serialized into the LLM prompt — operates on a bounded,
+    # already-relevant slice instead of an unbounded raw event list.
+    events = sorted(state["raw_events"], key=lambda e: e.timestamp)[-MAX_RAW_EVENTS:]
+    return {"raw_events": events}
 
 
 def metric_node(state: AgentState) -> dict[str, Any]:
@@ -73,7 +82,7 @@ def log_node(state: AgentState) -> dict[str, Any]:
                     "component": e.node,
                     "text": e.description
                 })
-    return {"logs": logs}
+    return {"logs": logs[-MAX_LOG_ENTRIES:]}
 
 
 def trace_node(state: AgentState) -> dict[str, Any]:
@@ -93,7 +102,7 @@ def trace_node(state: AgentState) -> dict[str, Any]:
                     "bytes_transferred": sbytes + dbytes,
                     "latency_ms": round(sbytes / 50000.0, 2)
                 })
-    return {"traces": traces}
+    return {"traces": traces[-MAX_TRACE_SPANS:]}
 
 
 def graph_node(state: AgentState) -> dict[str, Any]:
@@ -205,8 +214,10 @@ def report_node(state: AgentState) -> dict[str, Any]:
             })
     temp_incident["timeline"] = sorted(temp_incident["timeline"], key=lambda x: x["timestamp"])[:20]
 
-    # Generate natural language explanation using Gemini
-    explanation = gemini.explain_incident(temp_incident)
+    # Use the fast deterministic explanation here so the pipeline never blocks
+    # incident creation/emission on a live LLM round-trip. The richer Gemini
+    # narrative is generated on demand via POST /api/incidents/{id}/explain.
+    explanation = gemini.deterministic_explanation(temp_incident)
     
     final_report = {
         **temp_incident,

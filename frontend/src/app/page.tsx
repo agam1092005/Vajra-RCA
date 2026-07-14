@@ -3,11 +3,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, Network, ShieldAlert, Zap } from "lucide-react";
 import { api } from "@/lib/api";
 import { useSocket } from "@/lib/socket";
-import type { Incident, IncidentSummary, Metrics, TopologyData } from "@/lib/types";
+import type { AgentStep, Incident, IncidentSummary, Metrics, TopologyData } from "@/lib/types";
 import { MetricsChart, type RatePoint } from "@/components/MetricsChart";
 import { TopologyGraph } from "@/components/TopologyGraph";
 import { IncidentDetail } from "@/components/IncidentDetail";
 import { Section, SeverityBadge } from "@/components/ui";
+
+const AGENT_STEP_LABELS: Record<string, string> = {
+  coordinator: "Coordinator",
+  metric: "Metric agent",
+  log: "Log agent",
+  trace: "Trace agent",
+  graph: "Topology walk",
+  rag: "GraphRAG",
+  root_cause: "Causal inference",
+  report: "Synthesizing report",
+};
 
 function StatTile({
   icon,
@@ -46,6 +57,8 @@ export default function Dashboard() {
   const [injecting, setInjecting] = useState(false);
   const [leftTab, setLeftTab] = useState<"topology" | "grafana">("topology");
   const rateRef = useRef<RatePoint[]>([]);
+  const [agentStep, setAgentStep] = useState<AgentStep | null>(null);
+  const agentStepTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState("");
@@ -116,7 +129,18 @@ export default function Dashboard() {
       rateRef.current = [...rateRef.current, pt].slice(-40);
       setRates(rateRef.current);
     },
-    onIncident: () => refreshIncidents(),
+    onIncident: () => {
+      setAgentStep(null);
+      if (agentStepTimeout.current) clearTimeout(agentStepTimeout.current);
+      refreshIncidents();
+    },
+    onAgentStep: (s) => {
+      const step = s as AgentStep;
+      setAgentStep(step);
+      if (agentStepTimeout.current) clearTimeout(agentStepTimeout.current);
+      // clear if no further step/incident event arrives (e.g. the run errored out)
+      agentStepTimeout.current = setTimeout(() => setAgentStep(null), 6000);
+    },
   });
 
   const inject = async () => {
@@ -197,6 +221,12 @@ export default function Dashboard() {
               {metrics?.hot_node && <span className="mono">· watch {metrics.hot_node}</span>}
             </div>
           </div>
+          {agentStep && (
+            <span className="mono flex items-center gap-1.5 rounded-full bg-[#12304a] px-2.5 py-1 text-[11px] text-[#7ba7d5]">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#38bdf8]" />
+              {AGENT_STEP_LABELS[agentStep.node] ?? agentStep.node} · {agentStep.focal_node}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <button

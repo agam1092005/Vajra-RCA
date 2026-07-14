@@ -8,17 +8,7 @@ import { MetricsChart, type RatePoint } from "@/components/MetricsChart";
 import { TopologyGraph } from "@/components/TopologyGraph";
 import { IncidentDetail } from "@/components/IncidentDetail";
 import { Section, SeverityBadge } from "@/components/ui";
-
-const AGENT_STEP_LABELS: Record<string, string> = {
-  coordinator: "Coordinator",
-  metric: "Metric agent",
-  log: "Log agent",
-  trace: "Trace agent",
-  graph: "Topology walk",
-  rag: "GraphRAG",
-  root_cause: "Causal inference",
-  report: "Synthesizing report",
-};
+import { AgentPipeline } from "@/components/AgentPipeline";
 
 function StatTile({
   icon,
@@ -59,6 +49,8 @@ export default function Dashboard() {
   const rateRef = useRef<RatePoint[]>([]);
   const [agentStep, setAgentStep] = useState<AgentStep | null>(null);
   const agentStepTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [runComplete, setRunComplete] = useState<{ focal: string } | null>(null);
+  const runCompleteTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState("");
@@ -129,13 +121,19 @@ export default function Dashboard() {
       rateRef.current = [...rateRef.current, pt].slice(-40);
       setRates(rateRef.current);
     },
-    onIncident: () => {
+    onIncident: (d) => {
+      // run finished: flash the completed pipeline briefly, then hide.
+      const focal = (d as Incident)?.focal_node ?? agentStep?.focal_node ?? "";
       setAgentStep(null);
       if (agentStepTimeout.current) clearTimeout(agentStepTimeout.current);
+      setRunComplete({ focal });
+      if (runCompleteTimeout.current) clearTimeout(runCompleteTimeout.current);
+      runCompleteTimeout.current = setTimeout(() => setRunComplete(null), 2500);
       refreshIncidents();
     },
     onAgentStep: (s) => {
       const step = s as AgentStep;
+      setRunComplete(null);
       setAgentStep(step);
       if (agentStepTimeout.current) clearTimeout(agentStepTimeout.current);
       // clear if no further step/incident event arrives (e.g. the run errored out)
@@ -221,12 +219,6 @@ export default function Dashboard() {
               {metrics?.hot_node && <span className="mono">· watch {metrics.hot_node}</span>}
             </div>
           </div>
-          {agentStep && (
-            <span className="mono flex items-center gap-1.5 rounded-full bg-[#12304a] px-2.5 py-1 text-[11px] text-[#7ba7d5]">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#38bdf8]" />
-              {AGENT_STEP_LABELS[agentStep.node] ?? agentStep.node} · {agentStep.focal_node}
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -258,6 +250,15 @@ export default function Dashboard() {
           </button>
         </div>
       </header>
+
+      {/* live multi-agent pipeline stepper */}
+      {(agentStep || runComplete) && (
+        <AgentPipeline
+          currentNode={agentStep?.node ?? null}
+          focalNode={agentStep?.focal_node ?? runComplete?.focal ?? null}
+          done={!agentStep && !!runComplete}
+        />
+      )}
 
       {/* stat tiles */}
       <div className="grid grid-cols-2 gap-3 p-3 md:grid-cols-4">

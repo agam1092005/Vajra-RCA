@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #070b12;
+  --panel: #0e141f;
+  --panel-2: #131b28;
+  --border: #1e293b;
+  --text: #e6edf6;
+  --muted: #8397ad;
+  --accent: #38bdf8;
+  --accent-2: #22d3ee;
+  --ok: #34d399;
+  --info: #64748b;
+  --low: #22c55e;
+  --medium: #eab308;
+  --high: #f97316;
+  --critical: #ef4444;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel2: var(--panel-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+* { box-sizing: border-box; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #22304a; border-radius: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+.panel {
+  background: color-mix(in oklab, var(--panel) 92%, black);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.panel-head {
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--muted); font-weight: 600;
+}
+.mono { font-family: var(--font-mono), ui-monospace, monospace; }
+
+.sev-info { color: var(--info); }
+.sev-low { color: var(--low); }
+.sev-medium { color: var(--medium); }
+.sev-high { color: var(--high); }
+.sev-critical { color: var(--critical); }
+.bd-info { border-color: var(--info); }
+.bd-low { border-color: var(--low); }
+.bd-medium { border-color: var(--medium); }
+.bd-high { border-color: var(--high); }
+.bd-critical { border-color: var(--critical); }
+.bg-info { background: color-mix(in oklab, var(--info) 20%, transparent); }
+.bg-low { background: color-mix(in oklab, var(--low) 18%, transparent); }
+.bg-medium { background: color-mix(in oklab, var(--medium) 18%, transparent); }
+.bg-high { background: color-mix(in oklab, var(--high) 20%, transparent); }
+.bg-critical { background: color-mix(in oklab, var(--critical) 22%, transparent); }
+
+@keyframes pulse-ring { 0% { opacity:.9 } 50% { opacity:.35 } 100% { opacity:.9 } }
+.live-dot { width:8px; height:8px; border-radius:50%; background: var(--ok); animation: pulse-ring 1.6s ease-in-out infinite; }
+
+.react-flow__attribution { display: none; }
+.react-flow__node { font-family: var(--font-sans); }

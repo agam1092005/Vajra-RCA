@@ -25,6 +25,14 @@ export interface Hypothesis {
   recommendations: Recommendation[];
   rank: number;
   explanation?: string;
+  signature?: {
+    label: string;
+    mitre_id: string;
+    mitre_name: string;
+    matched_features: string[];
+    sentence: string;
+  };
+  attribution?: { feature: string; value: number; baseline: number; z: number }[];
 }
 
 export interface TimelineItem {

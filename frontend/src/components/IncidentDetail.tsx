@@ -71,6 +71,41 @@ function HypothesisCard({ h }: { h: Hypothesis }) {
           </span>
         ))}
       </div>
+      {h.signature?.mitre_id && (
+        <div className="mb-3 flex items-center gap-2">
+          <span className="mono rounded bg-[#3a1d1d] px-1.5 py-0.5 text-[10px] font-bold text-[#f87171]">
+            MITRE {h.signature.mitre_id}
+          </span>
+          <span className="text-[11px] text-[#c6d4e6]">{h.signature.mitre_name}</span>
+        </div>
+      )}
+      {h.attribution && h.attribution.length > 0 && (
+        <div className="mb-3">
+          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+            Why this flow is anomalous — feature attribution
+          </div>
+          <div className="space-y-1">
+            {h.attribution.map((a) => {
+              const mag = Math.min(100, Math.abs(a.z) * 20);
+              const up = a.z >= 0;
+              return (
+                <div key={a.feature} className="flex items-center gap-2 text-[11px]">
+                  <span className="mono w-28 shrink-0 text-[#9fb4cc]">{a.feature}</span>
+                  <div className="relative h-2 flex-1 rounded bg-[#0b111b]">
+                    <div
+                      className="absolute top-0 h-2 rounded"
+                      style={{ width: `${mag}%`, background: up ? "#f97316" : "#38bdf8" }}
+                    />
+                  </div>
+                  <span className="mono w-32 shrink-0 text-right text-[#c6d4e6]">
+                    {a.z >= 0 ? "+" : ""}{a.z}σ · obs {a.value}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div className="mb-3 flex flex-col gap-3 sm:flex-row">
         <EvidenceColumn
           title="Confirmed"

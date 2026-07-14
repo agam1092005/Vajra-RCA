@@ -12,7 +12,7 @@ import {
   Radius,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { Explanation, Hypothesis, Incident } from "@/lib/types";
+import type { Attribution, Explanation, Hypothesis, Incident } from "@/lib/types";
 import { ConfidenceBar, SeverityBadge, TierBadge } from "./ui";
 
 function EvidenceColumn({
@@ -161,17 +161,31 @@ export function IncidentDetail({ id }: { id: string }) {
   const [generatingReport, setGeneratingReport] = useState(false);
   const [similar, setSimilar] = useState<{ title: string; text: string; source: string; related_nodes: string[]; upstream: string[]; blast_radius: number }[] | null>(null);
   const [loadingSimilar, setLoadingSimilar] = useState(false);
+  const [attr, setAttr] = useState<Attribution | null>(null);
+  const [loadingAttr, setLoadingAttr] = useState(false);
 
   useEffect(() => {
     setInc(null);
     setExpl(null);
     setChat([]);
     setSimilar(null);
+    setAttr(null);
     api.incident(id).then((d) => {
       setInc(d);
       setExpl(d.explanation ?? null);
     });
   }, [id]);
+
+  const fetchAttr = async () => {
+    setLoadingAttr(true);
+    try {
+      setAttr(await api.attribution(id));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingAttr(false);
+    }
+  };
 
   const fetchSimilar = async () => {
     setLoadingSimilar(true);
@@ -296,6 +310,72 @@ export function IncidentDetail({ id }: { id: string }) {
             <p className="text-sm text-[var(--muted)]">
               Generate a natural-language operator summary (what / where / when / why / evidence).
             </p>
+          )}
+        </div>
+
+        {/* model explainability (SHAP) */}
+        <div className="rounded-xl border border-[var(--border)] bg-[#0b111b] p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+              <Sparkles size={13} /> Model Explainability
+              {attr && (
+                <span
+                  className={`ml-1 mono rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                    attr.method === "shap"
+                      ? "bg-[#12331f] text-[#34d399]"
+                      : "bg-[#2a2a12] text-[#eab308]"
+                  }`}
+                >
+                  {attr.method === "shap" ? "SHAP (model-faithful)" : "baseline-deviation"}
+                </span>
+              )}
+            </div>
+            {attr === null && (
+              <button
+                onClick={fetchAttr}
+                disabled={loadingAttr}
+                className="rounded-md bg-[#1c2b44] px-2.5 py-1 text-xs font-medium text-[#cfe0f2] hover:bg-[#233650] disabled:opacity-50"
+              >
+                {loadingAttr ? "Computing…" : "Explain detector"}
+              </button>
+            )}
+          </div>
+          {attr === null && !loadingAttr && (
+            <p className="text-xs text-[var(--muted)]">
+              Compute per-feature attribution for the detector on this node’s anomalous flows
+              (SHAP values over the Isolation Forest; falls back to baseline-deviation if SHAP is unavailable).
+            </p>
+          )}
+          {attr && (
+            <div>
+              {attr.signature?.mitre_id && (
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="mono rounded bg-[#3a1d1d] px-1.5 py-0.5 text-[10px] font-bold text-[#f87171]">
+                    MITRE {attr.signature.mitre_id}
+                  </span>
+                  <span className="text-[11px] text-[#c6d4e6]">{attr.signature.label} — {attr.signature.mitre_name}</span>
+                </div>
+              )}
+              <div className="space-y-1">
+                {attr.features.map((f) => {
+                  const max = Math.max(...attr.features.map((x) => x.contribution)) || 1;
+                  return (
+                    <div key={f.feature} className="flex items-center gap-2 text-[11px]">
+                      <span className="mono w-28 shrink-0 text-[#9fb4cc]">{f.feature}</span>
+                      <div className="relative h-2 flex-1 rounded bg-[#070b12]">
+                        <div
+                          className="absolute top-0 h-2 rounded"
+                          style={{ width: `${Math.min(100, (f.contribution / max) * 100)}%`, background: "#34d399" }}
+                        />
+                      </div>
+                      <span className="mono w-40 shrink-0 text-right text-[#c6d4e6]">
+                        {f.contribution} · obs {f.value} vs {f.baseline}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
 

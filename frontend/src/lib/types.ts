@@ -35,6 +35,18 @@ export interface Hypothesis {
   attribution?: { feature: string; value: number; baseline: number; z: number }[];
 }
 
+export interface Attribution {
+  method: "shap" | "baseline_deviation";
+  features: { feature: string; contribution: number; value: number; baseline: number }[];
+  signature: {
+    label: string;
+    mitre_id: string;
+    mitre_name: string;
+    matched_features: string[];
+    sentence: string;
+  };
+}
+
 export interface TimelineItem {
   timestamp: number;
   time: string;

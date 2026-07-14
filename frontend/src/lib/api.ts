@@ -1,4 +1,4 @@
-import type { Incident, IncidentSummary, Metrics, TopologyData, Explanation } from "./types";
+import type { Incident, IncidentSummary, Metrics, TopologyData, Explanation, Attribution } from "./types";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -19,6 +19,8 @@ export const api = {
   topology: (topN = 60) => j<TopologyData>(`/api/topology?top_n=${topN}`),
   incidents: () => j<IncidentSummary[]>("/api/incidents"),
   incident: (id: string) => j<Incident>(`/api/incidents/${id}`),
+  attribution: (id: string) =>
+    j<Attribution>(`/api/incidents/${id}/attribution`),
   audit: (id: string) =>
     j<{ ts: number; actor: string; action: string; detail: string }[]>(
       `/api/incidents/${id}/audit`

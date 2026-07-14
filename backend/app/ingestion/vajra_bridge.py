@@ -54,6 +54,15 @@ def _get_manager():
         from ml_model_manager import MLModelManager  # type: ignore
         mgr = MLModelManager(models_dir=str(_MODELS_DIR), log_file="/dev/null")
 
+        # MLModelManager._log_prediction does json.dumps(asdict(prediction)); the
+        # prediction's raw_input/features_used carry pandas-derived numpy int64
+        # (e.g. src_port/dst_port), which json can't serialize -> it logs
+        # "Failed to log prediction: Object of type int64 is not JSON serializable"
+        # on every flow. That prediction log is the old inline-firewall stack's and
+        # is already routed to /dev/null; we consume predictions via predict_all,
+        # not the file. Disable it outright to stop the per-flow error spam.
+        mgr._log_prediction = lambda *_a, **_k: None
+
         # Disable TF-dependent models that won't load in Python 3.12 venv
         _SKIP_MODELS = {"domain_classifier", "gnn_fingerprint"}
         for name in list(mgr.configs.keys()):

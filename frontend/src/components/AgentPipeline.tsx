@@ -33,13 +33,13 @@ export function AgentPipeline({
     : AGENT_STAGES.findIndex((s) => s.key === currentNode);
 
   return (
-    <div className="border-b border-[var(--border)] bg-[#0a0f18] px-5 py-2.5">
+    <div className="border-b border-[var(--border)] bg-[#0f0f11] px-5 py-2.5">
       <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
         <span className="flex items-center gap-1.5 text-[var(--accent)]">
           {done ? <Check size={13} /> : <Loader2 size={13} className="animate-spin" />}
           {done ? "Analysis complete" : "Multi-agent analysis running"}
         </span>
-        {focalNode && <span className="mono normal-case text-[#7ba7d5]">· {focalNode}</span>}
+        {focalNode && <span className="mono normal-case text-[var(--text)]">· {focalNode}</span>}
       </div>
       <div className="flex items-center gap-1 overflow-x-auto pb-1">
         {AGENT_STAGES.map((stage, i) => {
@@ -50,10 +50,10 @@ export function AgentPipeline({
               <div
                 className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
                   isActive
-                    ? "border-[#38bdf8] bg-[#12304a] text-[#bfe3ff]"
+                    ? "border-[var(--accent)] bg-[var(--panel-2)] text-[var(--text)]"
                     : isDone
                     ? "border-[#14532d] bg-[#0d2418] text-[#4ade80]"
-                    : "border-[var(--border)] bg-[#0b111b] text-[var(--muted)]"
+                    : "border-[var(--border)] bg-[var(--panel)] text-[var(--muted)]"
                 }`}
               >
                 <span className="flex h-4 w-4 items-center justify-center">

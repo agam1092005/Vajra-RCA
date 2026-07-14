@@ -51,7 +51,7 @@ export function Section({
 }
 
 const TIER_LABEL: Record<string, { label: string; color: string }> = {
-  diagnostic: { label: "Diagnostic", color: "#38bdf8" },
+  diagnostic: { label: "Diagnostic", color: "#a1a1aa" },
   low_risk: { label: "Low-risk", color: "#22c55e" },
   high_impact: { label: "High-impact", color: "#ef4444" },
 };

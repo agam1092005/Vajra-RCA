@@ -11,12 +11,12 @@ import "@xyflow/react/dist/style.css";
 import type { TopologyData } from "@/lib/types";
 
 const ROLE_COLOR: Record<string, string> = {
-  web: "#38bdf8",
+  web: "#a1a1aa",
   dns: "#a78bfa",
   database: "#f472b6",
   cache: "#f59e0b",
   mail: "#34d399",
-  ssh: "#22d3ee",
+  ssh: "#71717a",
   ftp: "#94a3b8",
   router: "#eab308",
   host: "#64748b",

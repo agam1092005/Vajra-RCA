@@ -94,7 +94,7 @@ function HypothesisCard({ h }: { h: Hypothesis }) {
                   <div className="relative h-2 flex-1 rounded bg-[#0b111b]">
                     <div
                       className="absolute top-0 h-2 rounded"
-                      style={{ width: `${mag}%`, background: up ? "#f97316" : "#38bdf8" }}
+                      style={{ width: `${mag}%`, background: up ? "#f97316" : "#a1a1aa" }}
                     />
                   </div>
                   <span className="mono w-32 shrink-0 text-right text-[#c6d4e6]">
@@ -257,7 +257,7 @@ export function IncidentDetail({ id }: { id: string }) {
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <SeverityBadge severity={inc.severity} />
           <span className="mono text-[11px] text-[var(--muted)]">#{inc.incident_id}</span>
-          <span className="rounded bg-[#131b28] px-1.5 py-0.5 text-[10px] uppercase text-[var(--muted)]">
+          <span className="rounded bg-[var(--panel-2)] px-1.5 py-0.5 text-[10px] uppercase text-[var(--muted)]">
             {inc.status}
           </span>
           {inc.report_url ? (
@@ -265,7 +265,7 @@ export function IncidentDetail({ id }: { id: string }) {
               href={inc.report_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="mono rounded bg-[#1e293b] hover:bg-[#334155] px-2 py-0.5 text-[10px] text-[#38bdf8] flex items-center gap-1 transition"
+              className="mono rounded bg-[var(--panel-2)] hover:bg-[#3f3f46] px-2 py-0.5 text-[10px] text-[var(--text)] flex items-center gap-1 transition"
             >
               Download PDF Report
             </a>
@@ -430,7 +430,7 @@ export function IncidentDetail({ id }: { id: string }) {
                     const pct = Math.round((Math.abs(f.contribution) / total) * 100);
                     const isPositive = f.contribution >= 0;
                     return (
-                      <div key={f.feature} className="flex flex-col gap-1 rounded-lg bg-[#070b12]/50 p-2 border border-[var(--border)]">
+                      <div key={f.feature} className="flex flex-col gap-1 rounded-lg bg-[var(--panel)]/50 p-2 border border-[var(--border)]">
                         <div className="flex items-center justify-between text-[11px]">
                           <span className="mono font-semibold text-[#9fb4cc]">{f.feature}</span>
                           <span className="mono text-[var(--muted)] text-[10px]">
@@ -438,12 +438,12 @@ export function IncidentDetail({ id }: { id: string }) {
                           </span>
                         </div>
                         <div className="flex items-center gap-3">
-                          <div className="relative h-2 flex-1 rounded bg-[#070b12]">
+                          <div className="relative h-2 flex-1 rounded bg-[var(--bg)]">
                             <div
                               className="absolute top-0 h-2 rounded"
                               style={{
                                 width: `${pct}%`,
-                                background: isPositive ? "linear-gradient(90deg, #f97316, #ef4444)" : "linear-gradient(90deg, #38bdf8, #2563eb)"
+                                background: isPositive ? "linear-gradient(90deg, #f97316, #ef4444)" : "linear-gradient(90deg, #71717a, #a1a1aa)"
                               }}
                             />
                           </div>
@@ -485,12 +485,12 @@ export function IncidentDetail({ id }: { id: string }) {
                   style={{
                     background:
                       t.type === "config_change"
-                        ? "#38bdf8"
+                        ? "#a1a1aa"
                         : t.type === "security_alert"
                         ? "#ef4444"
                         : t.type === "anomaly"
                         ? "#f97316"
-                        : "#3a4a63",
+                        : "#52525b",
                   }}
                 />
                 <div className="flex items-baseline gap-2">

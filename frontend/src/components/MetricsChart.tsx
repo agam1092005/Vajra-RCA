@@ -21,8 +21,8 @@ export function MetricsChart({ data }: { data: RatePoint[] }) {
       <AreaChart data={data} margin={{ top: 6, right: 6, left: -22, bottom: 0 }}>
         <defs>
           <linearGradient id="gFlows" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.5} />
-            <stop offset="100%" stopColor="#38bdf8" stopOpacity={0} />
+            <stop offset="0%" stopColor="#a1a1aa" stopOpacity={0.4} />
+            <stop offset="100%" stopColor="#a1a1aa" stopOpacity={0} />
           </linearGradient>
           <linearGradient id="gAnom" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#f97316" stopOpacity={0.6} />
@@ -30,11 +30,11 @@ export function MetricsChart({ data }: { data: RatePoint[] }) {
           </linearGradient>
         </defs>
         <XAxis dataKey="t" hide />
-        <YAxis stroke="#3a4a63" fontSize={10} tickLine={false} axisLine={false} width={34} />
+        <YAxis stroke="#4b5563" fontSize={10} tickLine={false} axisLine={false} width={34} />
         <Tooltip
           contentStyle={{
-            background: "#0e141f",
-            border: "1px solid #1e293b",
+            background: "var(--panel)",
+            border: "1px solid var(--border)",
             borderRadius: 10,
             fontSize: 12,
           }}
@@ -43,7 +43,7 @@ export function MetricsChart({ data }: { data: RatePoint[] }) {
         <Area
           type="monotone"
           dataKey="flows"
-          stroke="#38bdf8"
+          stroke="#a1a1aa"
           strokeWidth={1.5}
           fill="url(#gFlows)"
           name="flows/s"

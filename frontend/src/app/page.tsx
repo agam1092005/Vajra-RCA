@@ -185,14 +185,14 @@ export default function Dashboard() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full rounded-lg border border-[var(--border)] bg-[#070b12] px-3 py-2 text-sm text-[#e6edf6] outline-none focus:border-[var(--accent)]"
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]"
                 required
               />
             </div>
             {authError && <div className="text-xs font-medium text-red-500">{authError}</div>}
             <button
               type="submit"
-              className="w-full rounded-lg bg-[#38bdf8] hover:bg-[#0284c7] py-2.5 text-sm font-semibold text-[#070b12] transition cursor-pointer"
+              className="w-full rounded-lg bg-[var(--text)] hover:bg-[#e4e4e7] py-2.5 text-sm font-semibold text-[#0f0f11] transition cursor-pointer"
             >
               Sign In
             </button>
@@ -265,7 +265,7 @@ export default function Dashboard() {
       <div className="p-3 pb-0">
         <div className="mb-2 text-[10px] uppercase font-bold tracking-wider text-[var(--muted)]">Infrastructure Status</div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <StatTile icon={<Activity size={18} />} label="Flows ingested" value={c.flows ?? 0} accent="#38bdf8" />
+          <StatTile icon={<Activity size={18} />} label="Flows ingested" value={c.flows ?? 0} accent="#a1a1aa" />
           <StatTile icon={<Zap size={18} />} label="Anomalies" value={c.anomalies ?? 0} accent="#f97316" />
           <StatTile icon={<ShieldAlert size={18} />} label="Security alerts" value={c.alerts ?? 0} accent="#ef4444" />
           <StatTile icon={<Network size={18} />} label="Open incidents" value={metrics?.open_incidents ?? 0} accent="#34d399" />
@@ -312,7 +312,7 @@ export default function Dashboard() {
               icon={<Clock size={18} />} 
               label="Avg API Latency" 
               value={metrics?.business_impact ? `${metrics.business_impact.api_latency_ms}ms` : "85ms"} 
-              accent={metrics?.business_impact?.status === "degraded" ? "#f97316" : "#38bdf8"} 
+              accent={metrics?.business_impact?.status === "degraded" ? "#f97316" : "#a1a1aa"} 
             />
             <StatTile 
               icon={<DollarSign size={18} />} 

@@ -1,20 +1,20 @@
 @import "tailwindcss";
 
 :root {
-  /* True Black & Monochrome Grey Production Theme */
-  --bg: #000000;             /* True Black background */
-  --panel: #0a0a0a;          /* Extremely dark charcoal panel */
-  --panel-2: #171717;        /* Dark grey panel */
-  --border: #262626;         /* Medium charcoal grey border */
+  /* Matte Charcoal & Neutral Zinc Grey Theme */
+  --bg: #0f0f11;             /* Soft matte charcoal background */
+  --panel: #18181b;          /* Dark zinc panel (zinc-800) */
+  --panel-2: #27272a;        /* Lighter zinc panel (zinc-700) */
+  --border: #2e2e33;         /* Subtle zinc border */
   --text: #fafafa;           /* Warm white text */
-  --muted: #8e8e8e;          /* Cool neutral grey text */
+  --muted: #a1a1aa;          /* Cool grey text (zinc-400) */
   
-  --accent: #ffffff;         /* Pure white accent (high contrast) */
-  --accent-2: #d4d4d4;       /* Silver grey accent */
+  --accent: #e4e4e7;         /* Warm silver accent */
+  --accent-2: #d4d4d8;       /* Light zinc accent */
   --ok: #22c55e;             /* Green ok */
-  --info: #737373;           /* Neutral grey info */
+  --info: #71717a;           /* Neutral zinc-500 info */
   --low: #22c55e;            /* Green low */
-  --medium: #f59e0b;         /* Amber warning */
+  --medium: #eab308;         /* Amber warning */
   --high: #ef4444;           /* Red high */
   --critical: #ef4444;       /* Red critical */
 }
@@ -41,21 +41,21 @@ html, body {
 * { box-sizing: border-box; }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-thumb { background: #262626; border-radius: 6px; }
+::-webkit-scrollbar-thumb { background: #27272a; border-radius: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 
 .panel {
-  background: rgba(10, 10, 10, 0.7);
+  background: rgba(24, 24, 27, 0.7);
   backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.65);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .panel:hover {
   border-color: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.9), 0 0 1px rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.12);
 }
 
 .panel-head {

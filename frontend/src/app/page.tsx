@@ -156,13 +156,13 @@ export default function Dashboard() {
 
   if (!isAuthenticated) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#070b12] text-[#eef4fb]">
-        <div className="w-full max-w-md rounded-2xl border border-[#22304a] bg-[#0e141f] p-8 shadow-2xl backdrop-blur-md">
+      <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] text-[var(--text)]">
+        <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-8 shadow-2xl backdrop-blur-md">
           <div className="mb-6 text-center">
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[#12304a] text-[var(--accent)] mb-3">
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--panel-2)] text-[var(--accent)] mb-3">
               <Network size={28} />
             </div>
-            <h2 className="text-xl font-bold tracking-tight text-[#eef4fb]">Vajra RCA Operations</h2>
+            <h2 className="text-xl font-bold tracking-tight text-[var(--text)]">Vajra RCA Operations</h2>
             <p className="text-xs text-[var(--muted)] mt-1">Sign in with Operator credentials</p>
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
@@ -173,7 +173,7 @@ export default function Dashboard() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="admin"
-                className="w-full rounded-lg border border-[var(--border)] bg-[#070b12] px-3 py-2 text-sm text-[#e6edf6] outline-none focus:border-[var(--accent)]"
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]"
                 required
               />
             </div>
@@ -206,11 +206,11 @@ export default function Dashboard() {
       {/* header */}
       <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#12304a] text-[var(--accent)]">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--panel-2)] text-[var(--accent)]">
             <Network size={18} />
           </div>
           <div>
-            <h1 className="text-sm font-semibold tracking-tight text-[#eef4fb]">
+            <h1 className="text-sm font-semibold tracking-tight text-[var(--text)]">
               Vajra RCA <span className="text-[var(--muted)]">· Network Anomaly Root-Cause Assistant</span>
             </h1>
             <div className="flex items-center gap-2 text-[11px] text-[var(--muted)]">

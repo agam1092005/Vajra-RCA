@@ -333,13 +333,13 @@ export default function Dashboard() {
             title={leftTab === "topology" ? "Dependency topology" : "Grafana Observability"} 
             className="min-h-0 flex-1"
             right={
-              <div className="flex gap-1 bg-[#0b111b] p-0.5 rounded-lg border border-[var(--border)]">
+              <div className="flex gap-1 bg-[var(--bg)] p-0.5 rounded-lg border border-[var(--border)]">
                 <button
                   onClick={() => setLeftTab("topology")}
                   className={`px-2 py-0.5 text-[10px] rounded font-semibold transition ${
                     leftTab === "topology"
-                      ? "bg-[#1c2b44] text-[#cfe0f2]"
-                      : "text-[var(--muted)] hover:text-[#dce7f4]"
+                      ? "bg-[var(--panel-2)] text-[var(--text)]"
+                      : "text-[var(--muted)] hover:text-[var(--text)]"
                   }`}
                 >
                   Topology
@@ -348,8 +348,8 @@ export default function Dashboard() {
                   onClick={() => setLeftTab("grafana")}
                   className={`px-2 py-0.5 text-[10px] rounded font-semibold transition ${
                     leftTab === "grafana"
-                      ? "bg-[#1c2b44] text-[#cfe0f2]"
-                      : "text-[var(--muted)] hover:text-[#dce7f4]"
+                      ? "bg-[var(--panel-2)] text-[var(--text)]"
+                      : "text-[var(--muted)] hover:text-[var(--text)]"
                   }`}
                 >
                   Grafana
@@ -366,7 +366,7 @@ export default function Dashboard() {
             ) : (
               <iframe
                 src="http://localhost:3001/"
-                className="w-full h-full border-0 rounded-lg bg-[#0e141f]"
+                className="w-full h-full border-0 rounded-lg bg-[var(--panel)]"
                 title="Grafana Dashboard"
               />
             )}
@@ -386,8 +386,8 @@ export default function Dashboard() {
                     onClick={() => setSelected(it.incident_id)}
                     className={`w-full rounded-lg border p-2.5 text-left transition ${
                       selected === it.incident_id
-                        ? "border-[#33507a] bg-[#0f1826]"
-                        : "border-[var(--border)] bg-[#0b111b] hover:border-[#2a3b58]"
+                        ? "border-[var(--accent-2)] bg-[var(--panel-2)]"
+                        : "border-[var(--border)] bg-[var(--panel)] hover:border-[#52525b]"
                     }`}
                   >
                     <div className="mb-1 flex items-center justify-between">
@@ -396,7 +396,7 @@ export default function Dashboard() {
                         {Math.round((it.top_confidence ?? 0) * 100)}%
                       </span>
                     </div>
-                    <div className="line-clamp-2 text-xs font-medium text-[#dce7f4]">{it.title}</div>
+                    <div className="line-clamp-2 text-xs font-medium text-[var(--text)]">{it.title}</div>
                     <div className="mono mt-1 text-[10px] text-[var(--muted)]">{it.focal_node}</div>
                   </button>
                 </li>

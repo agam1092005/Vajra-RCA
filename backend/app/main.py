@@ -6,6 +6,7 @@ real-time replay pipeline over the real datasets.
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import socketio
 from fastapi import FastAPI, HTTPException
@@ -20,6 +21,11 @@ from .llm import gemini
 from .pipeline import Pipeline
 from .rag.graphrag import graphrag
 from .utils.reporter import generate_and_upload_report
+
+# Silence per-request INFO logging from HTTP client libs (Qdrant/httpx emit a line
+# for every "POST .../points/query 200 OK"). Cosmetic only — warnings/errors still show.
+for _noisy in ("httpx", "httpcore", "qdrant_client"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 api = FastAPI(title="Vajra RCA — Network Anomaly Root-Cause Assistant", version="0.1.0")

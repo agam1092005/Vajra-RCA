@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Network, ShieldAlert, Zap, Heart, DollarSign, Clock, CreditCard, ChevronDown, ChevronUp } from "lucide-react";
+import { Activity, Network, ShieldAlert, Zap } from "lucide-react";
 import { api } from "@/lib/api";
 import { useSocket } from "@/lib/socket";
 import type { AgentStep, Incident, IncidentSummary, Metrics, TopologyData } from "@/lib/types";
@@ -59,7 +59,6 @@ export default function Dashboard() {
 
   // Simulated Telemetry Source State
   const [replayActive, setReplayActive] = useState(false);
-  const [bizOpen, setBizOpen] = useState(false);
 
   const handleToggleReplay = async () => {
     const res = await api.toggleReplay(!replayActive);
@@ -270,57 +269,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* business metrics row */}
-      <div className="p-3 pb-3">
-        <button
-          onClick={() => setBizOpen(!bizOpen)}
-          className="flex w-full items-center justify-between rounded-lg bg-[var(--panel)] border border-[var(--border)] px-4 py-2 hover:bg-[#121212] transition-all duration-200"
-        >
-          <div className="flex items-center gap-2">
-            <CreditCard size={14} className="text-[var(--muted)]" />
-            <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--muted)]">
-              Business Operations Overlay - Payment example
-            </span>
-            {metrics?.business_impact?.status === "degraded" && (
-              <span className="mono animate-pulse rounded bg-[#3a1d1d] px-1.5 py-0.5 text-[9px] font-bold text-[#f87171]">
-                DEGRADED
-              </span>
-            )}
-          </div>
-          <div className="text-[var(--muted)]">
-            {bizOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </div>
-        </button>
 
-        {bizOpen && (
-          <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-4">
-            <StatTile 
-              icon={<Heart size={18} />} 
-              label="Service Health" 
-              value={metrics?.business_impact?.status === "degraded" ? "DEGRADED" : "NOMINAL"} 
-              accent={metrics?.business_impact?.status === "degraded" ? "#ef4444" : "#10b981"} 
-            />
-            <StatTile 
-              icon={<CreditCard size={18} />} 
-              label="UPI Success Rate" 
-              value={metrics?.business_impact ? `${metrics.business_impact.upi_success_rate}%` : "99.4%"} 
-              accent={metrics?.business_impact?.status === "degraded" ? "#ef4444" : "#10b981"} 
-            />
-            <StatTile 
-              icon={<Clock size={18} />} 
-              label="Avg API Latency" 
-              value={metrics?.business_impact ? `${metrics.business_impact.api_latency_ms}ms` : "85ms"} 
-              accent={metrics?.business_impact?.status === "degraded" ? "#f97316" : "#a1a1aa"} 
-            />
-            <StatTile 
-              icon={<DollarSign size={18} />} 
-              label="Revenue Impact" 
-              value={metrics?.business_impact?.revenue_loss_per_min ? `-$${metrics.business_impact.revenue_loss_per_min}/min` : "$0/min"} 
-              accent={metrics?.business_impact?.revenue_loss_per_min ? "#ef4444" : "#34d399"} 
-            />
-          </div>
-        )}
-      </div>
 
       {/* main grid */}
       <div className="grid min-h-0 flex-1 grid-cols-12 gap-3 p-3 pt-0">

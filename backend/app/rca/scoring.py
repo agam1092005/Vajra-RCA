@@ -17,6 +17,8 @@ W_CONFIRMED_MATCH = 30         # confirmed direct evidence (signature/label/diff
 W_MATCHING_PROPAGATION = 20    # anomaly on upstream temporally precedes the downstream anomaly
 W_HISTORICAL_MATCH = 10        # a similar past incident exists (RAG/history)
 W_INDEPENDENT_SIGNAL = 10      # an independent corroborating signal (alert/error log)
+W_EXPLAINED_SIGNATURE = 30     # a named behavioral signature (MITRE-mapped) matched the anomaly
+W_FEATURE_ATTRIBUTION = 15     # specific deviating features named from the detector
 MAX_SCORE = 100
 
 

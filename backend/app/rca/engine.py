@@ -18,6 +18,7 @@ from ..core.events import Event, EventType, Severity
 from ..graph.topology import TopologyGraph
 from .scoring import (
     W_CONFIG_WITHIN_WINDOW, W_CONFIRMED_MATCH, W_DIRECT_UPSTREAM_DEP,
+    W_EXPLAINED_SIGNATURE, W_FEATURE_ATTRIBUTION,
     W_HISTORICAL_MATCH, W_INDEPENDENT_SIGNAL, W_MATCHING_PROPAGATION,
     EvidenceItem, EvidenceKind, Recommendation, RiskTier, ScoreBreakdown,
 )
@@ -37,6 +38,8 @@ class Hypothesis:
     recommendations: list[dict] = field(default_factory=list)
     rank: int = 0
     explanation: str = ""
+    signature: dict = field(default_factory=dict)
+    attribution: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -106,7 +109,7 @@ class RCAEngine:
         h_up = self._upstream_hypothesis(focal_node, window_events, first_anomaly_ts, history)
         if h_up:
             hypotheses.append(h_up)
-        h_load = self._load_hypothesis(focal_node, anomalies, alerts)
+        h_load = self._behavioral_hypothesis(focal_node, anomalies, alerts)
         if h_load:
             hypotheses.append(h_load)
 
@@ -294,23 +297,91 @@ class RCAEngine:
             confirmed_evidence=confirmed, correlated_signals=correlated,
             missing_evidence=missing, recommendations=recs)
 
-    def _load_hypothesis(self, node, anomalies, alerts):
-        if not anomalies or alerts:  # only when anomalies exist without a clearer cause
+    def _behavioral_hypothesis(self, node, anomalies, alerts):
+        # only when anomalies exist without a clearer (config/attack/upstream) cause
+        if not anomalies or alerts:
             return None
+        labels: dict[str, int] = defaultdict(int)
+        sig_by_label: dict[str, dict] = {}
+        all_attr: list[dict] = []
+        for e in anomalies:
+            sig = e.attributes.get("signature") or {}
+            attr = e.attributes.get("attribution") or []
+            all_attr.extend(attr)
+            if sig.get("label"):
+                labels[sig["label"]] += 1
+                sig_by_label[sig["label"]] = sig
+
+        top_sig = sig_by_label.get(max(labels, key=labels.get)) if labels else {}
+        explained = bool(top_sig.get("mitre_id"))
+        top_feats = self._aggregate_attribution(all_attr, k=4)
+
         sb = ScoreBreakdown()
+        confirmed, correlated, missing = [], [], []
+
+        if explained:
+            sb.add("explained_signature", W_EXPLAINED_SIGNATURE)
+            confirmed.append(_ev_item(EvidenceKind.CONFIRMED,
+                f"{labels[top_sig['label']]} flow(s) match a {top_sig['label']} pattern "
+                f"(MITRE {top_sig['mitre_id']} · {top_sig['mitre_name']}): {top_sig['sentence']}.",
+                source="signature_classifier", component="explained_signature"))
+        if top_feats:
+            sb.add("feature_attribution", W_FEATURE_ATTRIBUTION)
+            feat_txt = ", ".join(
+                f"{f['feature']} {f['z']:+.1f}σ (obs {f['value']} vs baseline {f['baseline']})"
+                for f in top_feats)
+            confirmed.append(_ev_item(EvidenceKind.CONFIRMED,
+                f"Isolation Forest attribution — deviations from learned-normal baseline: {feat_txt}.",
+                source="isolation_forest", component="feature_attribution"))
+
         sb.add("independent_corroboration", W_INDEPENDENT_SIGNAL)
         sb.add("volumetric_pattern", W_MATCHING_PROPAGATION // 2)
-        correlated = [_ev_item(EvidenceKind.CORRELATED,
-            f"{len(anomalies)} statistically anomalous flows on {node} with no confirmed attack signature or config change.",
-            source="isolation_forest")]
-        missing = [_ev_item(EvidenceKind.MISSING,
-            f"Bandwidth/throughput counters for {node} are unavailable to distinguish load spike from attack.", source="telemetry")]
-        recs = [asdict(Recommendation(f"Run network diagnostics on {node}", RiskTier.DIAGNOSTIC,
-                                      "Anomalous flow statistics without a confirmed root cause."))]
+        correlated.append(_ev_item(EvidenceKind.CORRELATED,
+            f"{len(anomalies)} statistically anomalous flows on {node} (unsupervised detector).",
+            source="isolation_forest"))
+        missing.append(_ev_item(EvidenceKind.MISSING,
+            f"Host-level telemetry (CPU/memory/bandwidth) for {node} is unavailable to confirm impact.",
+            source="telemetry"))
+
+        root_cause = (f"{top_sig['label'].title()} on {node}" if explained
+                      else f"Unexplained traffic-flow anomaly on {node}")
+        recs = self._signature_recommendations(node, top_sig, explained)
         return Hypothesis(
-            root_cause=f"Unexplained traffic-flow anomaly on {node}",
-            kind="traffic_anomaly", confidence=sb.confidence, score_breakdown=sb.components,
-            confirmed_evidence=[], correlated_signals=correlated, missing_evidence=missing, recommendations=recs)
+            root_cause=root_cause, kind="behavioral_anomaly",
+            confidence=sb.confidence, score_breakdown=sb.components,
+            confirmed_evidence=confirmed, correlated_signals=correlated,
+            missing_evidence=missing, recommendations=recs,
+            signature=top_sig or {}, attribution=top_feats)
+
+    def _aggregate_attribution(self, all_attr: list[dict], k: int = 4) -> list[dict]:
+        agg: dict[str, dict] = {}
+        for a in all_attr:
+            cur = agg.get(a["feature"])
+            if cur is None or abs(a["z"]) > abs(cur["z"]):
+                agg[a["feature"]] = a
+        return sorted(agg.values(), key=lambda a: abs(a["z"]), reverse=True)[:k]
+
+    def _signature_recommendations(self, node, sig, explained):
+        if not explained:
+            return [asdict(Recommendation(f"Run network diagnostics on {node}", RiskTier.DIAGNOSTIC,
+                    "Anomalous flow statistics without a confirmed root cause."))]
+        mid = sig.get("mitre_id", "")
+        if mid == "T1046":
+            action = f"Rate-limit and inspect scanning sources reaching {node}"
+        elif mid in ("T1498", "T1498.002"):
+            action = f"Engage upstream DDoS scrubbing / rate-limiting for {node}"
+        elif mid == "T1041":
+            action = f"Inspect egress from {node} and apply DLP/egress filtering"
+        elif mid == "T1071":
+            action = f"Block suspected C2 endpoints and inspect beaconing flows to {node}"
+        else:
+            action = f"Investigate anomalous flows on {node}"
+        return [
+            asdict(Recommendation(action, RiskTier.LOW_RISK,
+                   f"Behavioral signature '{sig['label']}' ({mid}) matched the anomalous flows.")),
+            asdict(Recommendation(f"Capture host telemetry on {node}", RiskTier.DIAGNOSTIC,
+                   "Confirm impact and close the missing-evidence gap before enforcement.")),
+        ]
 
     # ---------- helpers ----------
     def _historical_match(self, history, kind, node) -> bool:

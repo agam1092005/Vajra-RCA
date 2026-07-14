@@ -16,6 +16,7 @@ from sklearn.preprocessing import StandardScaler
 from ..core.config import settings
 from ..core.events import Event, EventType, Severity
 from ..ingestion.schema import UNSW_NUMERIC_FEATURES, infer_service_role
+from .signatures import classify as classify_signature
 
 
 @dataclass
@@ -45,6 +46,29 @@ class FlowAnomalyDetector:
         x = df[self.features].apply(pd.to_numeric, errors="coerce").fillna(0.0).to_numpy(dtype=float)
         return np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
 
+    def _attribution(self, x_scaled: np.ndarray, raw: pd.DataFrame, k: int = 5) -> list[list[dict]]:
+        """Per-row top-k deviating features. Scaled values ARE z-scores vs the
+        fitted normal baseline (StandardScaler mean/scale), so this is a free,
+        honest 'which features are abnormal' signal."""
+        mean = self.scaler.mean_
+        raw_vals = self._matrix(raw)
+        out: list[list[dict]] = []
+        for i in range(x_scaled.shape[0]):
+            z = x_scaled[i]
+            order = np.argsort(-np.abs(z))
+            items: list[dict] = []
+            for j in order[:k]:
+                if abs(z[j]) < 1.0:
+                    continue
+                items.append({
+                    "feature": self.features[j],
+                    "value": round(float(raw_vals[i][j]), 4),
+                    "baseline": round(float(mean[j]), 4),
+                    "z": round(float(z[j]), 2),
+                })
+            out.append(items)
+        return out
+
     def fit(self, df: pd.DataFrame) -> DetectorReport:
         rows = df.head(settings.iforest_max_train_rows)
         x = self.scaler.fit_transform(self._matrix(rows))
@@ -63,6 +87,7 @@ class FlowAnomalyDetector:
         out = df.copy()
         out["anomaly_score"] = raw
         out["is_anomaly"] = (pred == -1).astype(int)
+        out["attribution"] = self._attribution(x, df)
         return out
 
     def validate(self, df: pd.DataFrame, label_col: str = "Label") -> DetectorReport:
@@ -89,6 +114,10 @@ def anomaly_event_from_flow(row: pd.Series) -> Event:
     score = float(row.get("anomaly_score", 0.0))
     dport = row.get("dsport_i")
     role = infer_service_role(dport, row.get("service"))
+    attribution = row.get("attribution")
+    if not isinstance(attribution, list):
+        attribution = []
+    signature = classify_signature(attribution)
     sev = Severity.HIGH if score > 0.15 else Severity.MEDIUM if score > 0.05 else Severity.LOW
     return Event(
         event_type=EventType.ANOMALY, source="isolation_forest", node=dstip,
@@ -101,5 +130,6 @@ def anomaly_event_from_flow(row: pd.Series) -> Event:
             "srcip": row.get("srcip"), "dstip": dstip, "dsport": dport, "role": role,
             "anomaly_score": round(score, 4), "detector": "isolation_forest",
             "attack_cat": row.get("attack_cat", ""), "label": int(row.get("Label", 0)),
+            "attribution": attribution, "signature": signature,
         },
     )

@@ -259,7 +259,7 @@ export default function Dashboard() {
       />
 
       {/* stat tiles */}
-      <div className="p-3 pb-0">
+      <div className="p-3 pb-3">
         <div className="mb-2 text-[10px] uppercase font-bold tracking-wider text-[var(--muted)]">Infrastructure Status</div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatTile icon={<Activity size={18} />} label="Flows ingested" value={c.flows ?? 0} accent="#a1a1aa" />

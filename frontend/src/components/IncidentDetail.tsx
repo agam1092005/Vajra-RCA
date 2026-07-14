@@ -34,7 +34,7 @@ function EvidenceColumn({
       <ul className="space-y-1.5">
         {items.length === 0 && <li className="text-xs text-[var(--muted)]">—</li>}
         {items.map((e, i) => (
-          <li key={i} className="rounded-md bg-[#0b111b] p-2 text-xs leading-snug text-[#c6d4e6]">
+          <li key={i} className="rounded-md bg-[var(--panel)] p-2 text-xs leading-snug text-[var(--text)]">
             {e.text}
             {e.source && <span className="mono ml-1 text-[10px] text-[var(--muted)]">· {e.source}</span>}
           </li>
@@ -48,16 +48,16 @@ function HypothesisCard({ h }: { h: Hypothesis }) {
   const top = h.rank === 1;
   return (
     <div
-      className={`rounded-xl border p-4 ${top ? "border-[#33507a] bg-[#0f1826]" : "border-[var(--border)] bg-[#0b111b]"}`}
+      className={`rounded-xl border p-4 ${top ? "border-[var(--accent-2)] bg-[var(--panel-2)]" : "border-[var(--border)] bg-[var(--panel)]"}`}
     >
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className="mono rounded-md bg-[#1b2536] px-1.5 py-0.5 text-xs font-bold text-[var(--accent)]">
+          <span className="mono rounded-md bg-[var(--bg)] px-1.5 py-0.5 text-xs font-bold text-[var(--accent)]">
             #{h.rank}
           </span>
-          <span className="font-semibold text-[#e9f1fb]">{h.root_cause}</span>
+          <span className="font-semibold text-[var(--text)]">{h.root_cause}</span>
         </div>
-        <span className="mono rounded bg-[#131b28] px-1.5 py-0.5 text-[10px] uppercase text-[var(--muted)]">
+        <span className="mono rounded bg-[var(--bg)] px-1.5 py-0.5 text-[10px] uppercase text-[var(--muted)]">
           {h.kind.replace(/_/g, " ")}
         </span>
       </div>
@@ -66,17 +66,17 @@ function HypothesisCard({ h }: { h: Hypothesis }) {
       </div>
       <div className="mb-3 flex flex-wrap gap-1.5">
         {Object.entries(h.score_breakdown).map(([k, v]) => (
-          <span key={k} className="mono rounded bg-[#131b28] px-1.5 py-0.5 text-[10px] text-[#9fb4cc]">
+          <span key={k} className="mono rounded bg-[var(--bg)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">
             {k.replace(/_/g, " ")} <span className="text-[var(--accent)]">+{v}</span>
           </span>
         ))}
       </div>
       {h.signature?.mitre_id && (
         <div className="mb-3 flex items-center gap-2">
-          <span className="mono rounded bg-[#3a1d1d] px-1.5 py-0.5 text-[10px] font-bold text-[#f87171]">
+          <span className="mono rounded bg-[var(--bg)] px-1.5 py-0.5 text-[10px] font-bold text-red-400">
             MITRE {h.signature.mitre_id}
           </span>
-          <span className="text-[11px] text-[#c6d4e6]">{h.signature.mitre_name}</span>
+          <span className="text-[11px] text-[var(--muted)]">{h.signature.mitre_name}</span>
         </div>
       )}
       {h.attribution && h.attribution.length > 0 && (
@@ -90,14 +90,14 @@ function HypothesisCard({ h }: { h: Hypothesis }) {
               const up = a.z >= 0;
               return (
                 <div key={a.feature} className="flex items-center gap-2 text-[11px]">
-                  <span className="mono w-28 shrink-0 text-[#9fb4cc]">{a.feature}</span>
-                  <div className="relative h-2 flex-1 rounded bg-[#0b111b]">
+                  <span className="mono w-28 shrink-0 text-[var(--muted)]">{a.feature}</span>
+                  <div className="relative h-2 flex-1 rounded bg-[var(--bg)]">
                     <div
                       className="absolute top-0 h-2 rounded"
-                      style={{ width: `${mag}%`, background: up ? "#f97316" : "#a1a1aa" }}
+                      style={{ width: `${mag}%`, background: up ? "var(--accent)" : "var(--muted)" }}
                     />
                   </div>
-                  <span className="mono w-32 shrink-0 text-right text-[#c6d4e6]">
+                  <span className="mono w-32 shrink-0 text-right text-[var(--text)]">
                     {a.z >= 0 ? "+" : ""}{a.z}σ · obs {a.value}
                   </span>
                 </div>
@@ -109,7 +109,7 @@ function HypothesisCard({ h }: { h: Hypothesis }) {
       <div className="mb-3 flex flex-col gap-3 sm:flex-row">
         <EvidenceColumn
           title="Confirmed"
-          color="#34d399"
+          color="var(--accent)"
           icon={<CheckCircle2 size={13} />}
           items={h.confirmed_evidence}
         />
@@ -121,7 +121,7 @@ function HypothesisCard({ h }: { h: Hypothesis }) {
         />
         <EvidenceColumn
           title="Missing"
-          color="#8397ad"
+          color="var(--muted)"
           icon={<CircleHelp size={13} />}
           items={h.missing_evidence}
         />
@@ -133,16 +133,16 @@ function HypothesisCard({ h }: { h: Hypothesis }) {
           </div>
           <ul className="space-y-1.5">
             {h.recommendations.map((r, i) => (
-              <li key={i} className="flex items-start gap-2 text-xs text-[#cfdcec]">
+              <li key={i} className="flex items-start gap-2 text-xs text-[var(--text)]">
                 <TierBadge tier={r.tier} />
                 <span>
                   {r.action}
                   {r.requires_human_approval && (
-                    <span className="ml-1 text-[10px] font-semibold text-[#f97316]">· needs approval</span>
+                    <span className="ml-1 text-[10px] font-semibold text-[var(--accent)]">· needs approval</span>
                   )}
                   <span className="block text-[11px] text-[var(--muted)]">{r.reason}</span>
                   {r.warning && (
-                    <span className="block text-[10px] font-semibold text-[#f87171] mt-0.5 animate-pulse">
+                    <span className="block text-[10px] font-semibold text-red-400 mt-0.5 animate-pulse">
                       ⚠️ {r.warning}
                     </span>
                   )}
@@ -179,7 +179,6 @@ export function IncidentDetail({ id }: { id: string }) {
       setInc(d);
       setExpl(d.explanation ?? null);
       
-      // Auto-fetch feature attribution
       setLoadingAttr(true);
       api.attribution(id)
         .then(setAttr)
@@ -252,12 +251,11 @@ export function IncidentDetail({ id }: { id: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* header */}
       <div className="border-b border-[var(--border)] p-4">
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <SeverityBadge severity={inc.severity} />
           <span className="mono text-[11px] text-[var(--muted)]">#{inc.incident_id}</span>
-          <span className="rounded bg-[var(--panel-2)] px-1.5 py-0.5 text-[10px] uppercase text-[var(--muted)]">
+          <span className="rounded bg-[var(--panel-2)] px-1.5 py-0.5 text-[10px] uppercase text-[var(--muted)] border border-[var(--border)]">
             {inc.status}
           </span>
           {inc.report_url ? (
@@ -265,7 +263,7 @@ export function IncidentDetail({ id }: { id: string }) {
               href={inc.report_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="mono rounded bg-[var(--panel-2)] hover:bg-[#3f3f46] px-2 py-0.5 text-[10px] text-[var(--text)] flex items-center gap-1 transition"
+              className="mono rounded bg-[var(--panel-2)] hover:bg-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--text)] flex items-center gap-1 transition border border-[var(--border)]"
             >
               Download PDF Report
             </a>
@@ -273,65 +271,63 @@ export function IncidentDetail({ id }: { id: string }) {
             <button
               onClick={generateReport}
               disabled={generatingReport}
-              className="mono rounded bg-[#1e293b] hover:bg-[#334155] px-2 py-0.5 text-[10px] text-[var(--muted)] disabled:opacity-50 transition"
+              className="mono rounded border border-[var(--border)] bg-[var(--panel-2)] hover:bg-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--text)] disabled:opacity-50 transition"
             >
               {generatingReport ? "Generating PDF..." : "Generate PDF Report"}
             </button>
           )}
         </div>
-        <h2 className="text-lg font-semibold text-[#eef4fb]">{inc.title}</h2>
-        <p className="mt-1 text-sm text-[#a9bbd0]">{inc.summary}</p>
+        <h2 className="text-lg font-semibold text-[var(--text)]">{inc.title}</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">{inc.summary}</p>
         <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-          <span className="mono rounded bg-[#0b111b] px-2 py-1 text-[#9fb4cc]">
-            focal <span className="text-[#e6edf6]">{inc.focal_node}</span>
+          <span className="mono rounded bg-[var(--panel-2)] border border-[var(--border)] px-2 py-1 text-[var(--muted)]">
+            focal <span className="text-[var(--text)]">{inc.focal_node}</span>
           </span>
-          <span className="mono flex items-center gap-1 rounded bg-[#0b111b] px-2 py-1 text-[#9fb4cc]">
+          <span className="mono flex items-center gap-1 rounded bg-[var(--panel-2)] border border-[var(--border)] px-2 py-1 text-[var(--muted)]">
             <Radius size={12} /> blast {inc.blast_radius?.count ?? 0}
           </span>
           {Object.entries(inc.signal_counts).map(([k, v]) => (
-            <span key={k} className="mono rounded bg-[#0b111b] px-2 py-1 text-[#9fb4cc]">
-              {k.replace(/_/g, " ")} <span className="text-[#e6edf6]">{v}</span>
+            <span key={k} className="mono rounded bg-[var(--panel-2)] border border-[var(--border)] px-2 py-1 text-[var(--muted)]">
+              {k.replace(/_/g, " ")} <span className="text-[var(--text)]">{v}</span>
             </span>
           ))}
         </div>
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
-        {/* Business Impact Overlay */}
         {inc.business_impact && inc.business_impact.status === "degraded" && (
-          <div className="rounded-xl border border-red-500/20 bg-[#2d1212]/20 p-4">
+          <div className="rounded-xl border border-red-500/20 bg-red-950/10 p-4">
             <div className="mb-2 flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-red-400">
                 <AlertTriangle size={13} className="text-red-400 animate-pulse" /> Business Impact Analysis
               </span>
-              <span className="mono rounded bg-[#3d1313] px-2 py-0.5 text-[10px] uppercase font-bold text-red-300">
+              <span className="mono rounded bg-red-900/30 px-2 py-0.5 text-[10px] uppercase font-bold text-red-300">
                 {inc.business_impact.status}
               </span>
             </div>
             <p className="text-sm leading-relaxed text-red-200">{inc.business_impact.description}</p>
             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="rounded-lg bg-[#140b0b]/60 p-2.5 border border-red-900/30">
-                <div className="text-[10px] uppercase tracking-wider text-red-400/60 font-semibold">UPI Success Rate</div>
-                <div className="mono text-lg font-bold text-red-200 mt-0.5">{inc.business_impact.upi_success_rate}%</div>
+              <div className="rounded-lg bg-[var(--panel-2)] p-2.5 border border-red-900/20">
+                <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] font-semibold">UPI Success Rate</div>
+                <div className="mono text-lg font-bold text-[var(--text)] mt-0.5">{inc.business_impact.upi_success_rate}%</div>
               </div>
-              <div className="rounded-lg bg-[#140b0b]/60 p-2.5 border border-red-900/30">
-                <div className="text-[10px] uppercase tracking-wider text-red-400/60 font-semibold">Card Auth Rate</div>
-                <div className="mono text-lg font-bold text-red-200 mt-0.5">{inc.business_impact.card_success_rate}%</div>
+              <div className="rounded-lg bg-[var(--panel-2)] p-2.5 border border-red-900/20">
+                <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] font-semibold">Card Auth Rate</div>
+                <div className="mono text-lg font-bold text-[var(--text)] mt-0.5">{inc.business_impact.card_success_rate}%</div>
               </div>
-              <div className="rounded-lg bg-[#140b0b]/60 p-2.5 border border-red-900/30">
-                <div className="text-[10px] uppercase tracking-wider text-red-400/60 font-semibold">Checkout Latency</div>
-                <div className="mono text-lg font-bold text-red-200 mt-0.5">{inc.business_impact.api_latency_ms}ms</div>
+              <div className="rounded-lg bg-[var(--panel-2)] p-2.5 border border-red-900/20">
+                <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] font-semibold">Checkout Latency</div>
+                <div className="mono text-lg font-bold text-[var(--text)] mt-0.5">{inc.business_impact.api_latency_ms}ms</div>
               </div>
-              <div className="rounded-lg bg-[#140b0b]/60 p-2.5 border border-red-900/30">
-                <div className="text-[10px] uppercase tracking-wider text-red-400/60 font-semibold">Est. Revenue Loss</div>
-                <div className="mono text-lg font-bold text-red-200 mt-0.5">${inc.business_impact.revenue_loss_per_min}/min</div>
+              <div className="rounded-lg bg-[var(--panel-2)] p-2.5 border border-red-900/20">
+                <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] font-semibold">Est. Revenue Loss</div>
+                <div className="mono text-lg font-bold text-[var(--text)] mt-0.5">${inc.business_impact.revenue_loss_per_min}/min</div>
               </div>
             </div>
           </div>
         )}
 
-        {/* AI explanation */}
-        <div className="rounded-xl border border-[#2a3b58] bg-gradient-to-b from-[#101a2b] to-[#0c1420] p-4">
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--accent)]">
               <Sparkles size={13} /> AI explanation
@@ -339,14 +335,14 @@ export function IncidentDetail({ id }: { id: string }) {
             <button
               onClick={explain}
               disabled={loadingExpl}
-              className="rounded-md bg-[#1c2b44] px-2.5 py-1 text-xs font-medium text-[#cfe0f2] hover:bg-[#233650] disabled:opacity-50"
+              className="rounded-md bg-[var(--panel-2)] border border-[var(--border)] px-2.5 py-1 text-xs font-medium text-[var(--text)] hover:bg-[var(--border)] disabled:opacity-50"
             >
               {loadingExpl ? "Generating…" : expl ? "Regenerate" : "Explain"}
             </button>
           </div>
           {expl ? (
             <div>
-              <p className="text-sm leading-relaxed text-[#dbe7f4]">{expl.narrative}</p>
+              <p className="text-sm leading-relaxed text-[var(--text)]">{expl.narrative}</p>
               <span className="mono mt-2 block text-[10px] text-[var(--muted)]">
                 generated by {expl.generated_by}
               </span>
@@ -358,17 +354,16 @@ export function IncidentDetail({ id }: { id: string }) {
           )}
         </div>
 
-        {/* model explainability (SHAP) */}
-        <div className="rounded-xl border border-[var(--border)] bg-gradient-to-b from-[var(--panel)] to-[#030712] p-4">
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--text)]">
-              <Sparkles size={13} className="text-[#d4d4d4]" /> Model Explainability
+              <Sparkles size={13} className="text-[var(--accent)]" /> Model Explainability
               {attr && (
                 <span
                   className={`ml-1 mono rounded px-1.5 py-0.5 text-[10px] font-bold ${
                     attr.method === "shap"
-                      ? "bg-[#12331f] text-[#34d399]"
-                      : "bg-[#2a2a12] text-[#eab308]"
+                      ? "bg-[var(--panel-2)] text-[var(--accent)]"
+                      : "bg-[var(--panel-2)] text-[var(--muted)]"
                   }`}
                 >
                   {attr.method === "shap" ? "SHAP (model-faithful)" : "baseline-deviation"}
@@ -379,7 +374,7 @@ export function IncidentDetail({ id }: { id: string }) {
               <button
                 onClick={fetchAttr}
                 disabled={loadingAttr}
-                className="rounded-md bg-[#1c2b44] px-2 py-0.5 text-[10px] font-medium text-[#cfe0f2] hover:bg-[#233650] disabled:opacity-50"
+                className="rounded-md bg-[var(--panel-2)] border border-[var(--border)] px-2 py-0.5 text-[10px] font-medium text-[var(--text)] hover:bg-[var(--border)] disabled:opacity-50"
               >
                 {loadingAttr ? "Recalculating…" : "Recalculate"}
               </button>
@@ -401,7 +396,7 @@ export function IncidentDetail({ id }: { id: string }) {
               <button
                 onClick={fetchAttr}
                 disabled={loadingAttr}
-                className="rounded-md bg-[#1c2b44] px-2.5 py-1 text-xs font-medium text-[#cfe0f2] hover:bg-[#233650] disabled:opacity-50"
+                className="rounded-md bg-[var(--panel-2)] border border-[var(--border)] px-2.5 py-1 text-xs font-medium text-[var(--text)] hover:bg-[var(--border)] disabled:opacity-50"
               >
                 Explain detector
               </button>
@@ -412,14 +407,14 @@ export function IncidentDetail({ id }: { id: string }) {
             <div className="space-y-3">
               {attr.signature?.mitre_id && (
                 <div className="flex items-center gap-2">
-                  <span className="mono rounded bg-[#3a1d1d] px-1.5 py-0.5 text-[10px] font-bold text-[#f87171]">
+                  <span className="mono rounded bg-[var(--bg)] px-1.5 py-0.5 text-[10px] font-bold text-red-400">
                     MITRE {attr.signature.mitre_id}
                   </span>
-                  <span className="text-[11px] text-[#c6d4e6]">{attr.signature.label} — {attr.signature.mitre_name}</span>
+                  <span className="text-[11px] text-[var(--text)]">{attr.signature.label} — {attr.signature.mitre_name}</span>
                 </div>
               )}
 
-              <p className="text-xs text-[#9fb4cc] leading-relaxed">
+              <p className="text-xs text-[var(--muted)] leading-relaxed">
                 Feature attribution breakdown shows which network parameters deviated most from the model's normal baseline to trigger the anomaly:
               </p>
 
@@ -430,24 +425,24 @@ export function IncidentDetail({ id }: { id: string }) {
                     const pct = Math.round((Math.abs(f.contribution) / total) * 100);
                     const isPositive = f.contribution >= 0;
                     return (
-                      <div key={f.feature} className="flex flex-col gap-1 rounded-lg bg-[var(--panel)]/50 p-2 border border-[var(--border)]">
+                      <div key={f.feature} className="flex flex-col gap-1 rounded-lg bg-[var(--bg)] p-2 border border-[var(--border)]">
                         <div className="flex items-center justify-between text-[11px]">
-                          <span className="mono font-semibold text-[#9fb4cc]">{f.feature}</span>
+                          <span className="mono font-semibold text-[var(--text)]">{f.feature}</span>
                           <span className="mono text-[var(--muted)] text-[10px]">
-                            value: <strong className="text-[#eef4fb]">{f.value}</strong> (vs baseline {f.baseline})
+                            value: <strong className="text-[var(--text)]">{f.value}</strong> (vs baseline {f.baseline})
                           </span>
                         </div>
                         <div className="flex items-center gap-3">
-                          <div className="relative h-2 flex-1 rounded bg-[var(--bg)]">
+                          <div className="relative h-2 flex-1 rounded bg-[var(--panel-2)]">
                             <div
                               className="absolute top-0 h-2 rounded"
                               style={{
                                 width: `${pct}%`,
-                                background: isPositive ? "linear-gradient(90deg, #f97316, #ef4444)" : "linear-gradient(90deg, #71717a, #a1a1aa)"
+                                background: isPositive ? "var(--accent)" : "var(--muted)"
                               }}
                             />
                           </div>
-                          <span className="mono w-16 text-right text-xs font-bold text-[#eef4fb]">
+                          <span className="mono w-16 text-right text-xs font-bold text-[var(--text)]">
                             {isPositive ? "+" : ""}{pct}%
                           </span>
                         </div>
@@ -460,7 +455,6 @@ export function IncidentDetail({ id }: { id: string }) {
           )}
         </div>
 
-        {/* hypotheses */}
         <div>
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
             Ranked root-cause hypotheses
@@ -472,7 +466,6 @@ export function IncidentDetail({ id }: { id: string }) {
           </div>
         </div>
 
-        {/* timeline */}
         <div>
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
             Incident timeline
@@ -485,36 +478,35 @@ export function IncidentDetail({ id }: { id: string }) {
                   style={{
                     background:
                       t.type === "config_change"
-                        ? "#a1a1aa"
+                        ? "var(--muted)"
                         : t.type === "security_alert"
                         ? "#ef4444"
                         : t.type === "anomaly"
-                        ? "#f97316"
-                        : "#52525b",
+                        ? "var(--accent)"
+                        : "var(--border)",
                   }}
                 />
                 <div className="flex items-baseline gap-2">
                   <span className="mono text-[11px] text-[var(--muted)]">{t.time}</span>
                   {t.type === "config_change" && <GitCommitHorizontal size={12} className="text-[var(--accent)]" />}
-                  <span className="text-xs text-[#cfdcec]">{t.text}</span>
+                  <span className="text-xs text-[var(--text)]">{t.text}</span>
                 </div>
               </li>
             ))}
           </ol>
         </div>
 
-        {/* similar runbooks (GraphRAG) */}
-        <div className="rounded-xl border border-[var(--border)] bg-[#0b111b] p-3">
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3">
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
               <BookOpen size={13} /> Similar Runbooks
-              <span className="ml-1 text-[10px] text-[#3b7dd8]">(GraphRAG: Qdrant + Neo4j)</span>
+              <span className="ml-1 text-[10px] text-[var(--muted)]">(GraphRAG: Qdrant + Neo4j)</span>
             </div>
             {similar === null && (
               <button
                 onClick={fetchSimilar}
                 disabled={loadingSimilar}
-                className="flex items-center gap-1 rounded-md bg-[#1c2b44] px-2 py-1 text-[10px] text-[#cfe0f2] hover:bg-[#233650] disabled:opacity-50"
+                className="flex items-center gap-1 rounded-md bg-[var(--panel-2)] border border-[var(--border)] px-2 py-1 text-[10px] text-[var(--text)] hover:bg-[var(--border)] disabled:opacity-50"
               >
                 {loadingSimilar ? "Loading…" : "Search"}
               </button>
@@ -529,22 +521,22 @@ export function IncidentDetail({ id }: { id: string }) {
           {similar !== null && similar.length > 0 && (
             <div className="space-y-2">
               {similar.map((doc, i) => (
-                <div key={i} className="rounded-lg border border-[#1e2d46] bg-[#0d1420] p-2.5">
+                <div key={i} className="rounded-lg border border-[var(--border)] bg-[var(--panel-2)] p-2.5">
                   <div className="mb-1 flex items-start justify-between gap-2">
-                    <span className="text-xs font-semibold text-[#91bae5]">{doc.title}</span>
+                    <span className="text-xs font-semibold text-[var(--accent)]">{doc.title}</span>
                     {doc.source && (
-                      <span className="mono rounded bg-[#131b28] px-1 py-0.5 text-[10px] text-[var(--muted)]">{doc.source}</span>
+                      <span className="mono rounded bg-[var(--bg)] px-1 py-0.5 text-[10px] text-[var(--muted)]">{doc.source}</span>
                     )}
                   </div>
-                  <p className="mb-1.5 text-[11px] leading-snug text-[#8da4bc]">{doc.text?.slice(0, 200)}{doc.text?.length > 200 ? "…" : ""}</p>
+                  <p className="mb-1.5 text-[11px] leading-snug text-[var(--muted)]">{doc.text?.slice(0, 200)}{doc.text?.length > 200 ? "…" : ""}</p>
                   {doc.related_nodes?.length > 0 && (
                     <div className="flex items-center gap-1 flex-wrap">
                       <Network size={11} className="text-[var(--muted)]" />
                       {doc.related_nodes.slice(0, 5).map((n, j) => (
-                        <span key={j} className="mono rounded bg-[#1b2536] px-1 py-0.5 text-[10px] text-[#7ba7d5]">{n}</span>
+                        <span key={j} className="mono rounded bg-[var(--bg)] px-1 py-0.5 text-[10px] text-[var(--text)]">{n}</span>
                       ))}
                       {doc.blast_radius > 0 && (
-                        <span className="mono text-[10px] text-[#f97316]">blast={doc.blast_radius}</span>
+                        <span className="mono text-[10px] text-[var(--accent)]">blast={doc.blast_radius}</span>
                       )}
                     </div>
                   )}
@@ -555,7 +547,7 @@ export function IncidentDetail({ id }: { id: string }) {
         </div>
 
         {/* chat */}
-        <div className="rounded-xl border border-[var(--border)] bg-[#0b111b] p-3">
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3">
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
             Ask the assistant
           </div>
@@ -563,7 +555,7 @@ export function IncidentDetail({ id }: { id: string }) {
             {chat.map((m, i) => (
               <div key={i} className="text-xs">
                 <div className="text-[var(--accent)]">▸ {m.q}</div>
-                <div className="whitespace-pre-wrap text-[#cfdcec]">{m.a}</div>
+                <div className="whitespace-pre-wrap text-[var(--text)]">{m.a}</div>
               </div>
             ))}
           </div>
@@ -573,12 +565,12 @@ export function IncidentDetail({ id }: { id: string }) {
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && ask()}
               placeholder="Why is this the most likely cause?"
-              className="mono flex-1 rounded-md border border-[var(--border)] bg-[#070b12] px-2.5 py-1.5 text-xs text-[#e6edf6] outline-none focus:border-[var(--accent)]"
+              className="mono flex-1 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-xs text-[var(--text)] outline-none focus:border-[var(--accent)]"
             />
             <button
               onClick={ask}
               disabled={chatBusy}
-              className="flex items-center gap-1 rounded-md bg-[#1c2b44] px-2.5 py-1.5 text-xs text-[#cfe0f2] hover:bg-[#233650] disabled:opacity-50"
+              className="flex items-center gap-1 rounded-md bg-[var(--panel-2)] border border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--text)] hover:bg-[#3f3f46] disabled:opacity-50"
             >
               <Send size={13} />
             </button>

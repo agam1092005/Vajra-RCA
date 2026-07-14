@@ -23,6 +23,10 @@ export const api = {
     j<{ ts: number; actor: string; action: string; detail: string }[]>(
       `/api/incidents/${id}/audit`
     ),
+  similar: (id: string) =>
+    j<{ title: string; text: string; source: string; related_nodes: string[]; upstream: string[]; downstream: string[]; blast_radius: number }[]>(
+      `/api/incidents/${id}/similar`
+    ),
   explain: (id: string) =>
     j<Explanation>(`/api/incidents/${id}/explain`, { method: "POST" }),
   report: (id: string) =>

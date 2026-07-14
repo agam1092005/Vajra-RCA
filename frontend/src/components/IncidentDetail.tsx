@@ -2,9 +2,11 @@
 import { useEffect, useState } from "react";
 import {
   AlertTriangle,
+  BookOpen,
   CheckCircle2,
   CircleHelp,
   GitCommitHorizontal,
+  Network,
   Send,
   Sparkles,
   Radius,
@@ -122,16 +124,31 @@ export function IncidentDetail({ id }: { id: string }) {
   const [question, setQuestion] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const [generatingReport, setGeneratingReport] = useState(false);
+  const [similar, setSimilar] = useState<{ title: string; text: string; source: string; related_nodes: string[]; upstream: string[]; blast_radius: number }[] | null>(null);
+  const [loadingSimilar, setLoadingSimilar] = useState(false);
 
   useEffect(() => {
     setInc(null);
     setExpl(null);
     setChat([]);
+    setSimilar(null);
     api.incident(id).then((d) => {
       setInc(d);
       setExpl(d.explanation ?? null);
     });
   }, [id]);
+
+  const fetchSimilar = async () => {
+    setLoadingSimilar(true);
+    try {
+      setSimilar(await api.similar(id));
+    } catch (e) {
+      console.error(e);
+      setSimilar([]);
+    } finally {
+      setLoadingSimilar(false);
+    }
+  };
 
   const generateReport = async () => {
     setGeneratingReport(true);
@@ -288,6 +305,57 @@ export function IncidentDetail({ id }: { id: string }) {
               </li>
             ))}
           </ol>
+        </div>
+
+        {/* similar runbooks (GraphRAG) */}
+        <div className="rounded-xl border border-[var(--border)] bg-[#0b111b] p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+              <BookOpen size={13} /> Similar Runbooks
+              <span className="ml-1 text-[10px] text-[#3b7dd8]">(GraphRAG: Qdrant + Neo4j)</span>
+            </div>
+            {similar === null && (
+              <button
+                onClick={fetchSimilar}
+                disabled={loadingSimilar}
+                className="flex items-center gap-1 rounded-md bg-[#1c2b44] px-2 py-1 text-[10px] text-[#cfe0f2] hover:bg-[#233650] disabled:opacity-50"
+              >
+                {loadingSimilar ? "Loading…" : "Search"}
+              </button>
+            )}
+          </div>
+          {similar === null && !loadingSimilar && (
+            <p className="text-xs text-[var(--muted)]">Click Search to find topology-aware runbooks for this incident.</p>
+          )}
+          {similar !== null && similar.length === 0 && (
+            <p className="text-xs text-[var(--muted)]">No matching runbooks found.</p>
+          )}
+          {similar !== null && similar.length > 0 && (
+            <div className="space-y-2">
+              {similar.map((doc, i) => (
+                <div key={i} className="rounded-lg border border-[#1e2d46] bg-[#0d1420] p-2.5">
+                  <div className="mb-1 flex items-start justify-between gap-2">
+                    <span className="text-xs font-semibold text-[#91bae5]">{doc.title}</span>
+                    {doc.source && (
+                      <span className="mono rounded bg-[#131b28] px-1 py-0.5 text-[10px] text-[var(--muted)]">{doc.source}</span>
+                    )}
+                  </div>
+                  <p className="mb-1.5 text-[11px] leading-snug text-[#8da4bc]">{doc.text?.slice(0, 200)}{doc.text?.length > 200 ? "…" : ""}</p>
+                  {doc.related_nodes?.length > 0 && (
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <Network size={11} className="text-[var(--muted)]" />
+                      {doc.related_nodes.slice(0, 5).map((n, j) => (
+                        <span key={j} className="mono rounded bg-[#1b2536] px-1 py-0.5 text-[10px] text-[#7ba7d5]">{n}</span>
+                      ))}
+                      {doc.blast_radius > 0 && (
+                        <span className="mono text-[10px] text-[#f97316]">blast={doc.blast_radius}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* chat */}

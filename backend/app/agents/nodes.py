@@ -10,14 +10,31 @@ from typing import Any
 from .state import AgentState
 from ..core.events import Event, EventType, Severity
 from ..graph.topology import TopologyGraph
-from ..rag.qdrant import rag
+from ..rag.graphrag import graphrag          # GraphRAG = Qdrant + Neo4j
 from ..db.store import store
 from ..llm import gemini
 from ..rca.engine import RCAEngine
 
 
-# Shared topology graph client for the agents
-_topo = TopologyGraph()
+# Module-level topology singleton — one Neo4j connection shared across all agent calls.
+_topo: TopologyGraph | None = None
+_topo_ready = False
+
+
+def _get_topo() -> TopologyGraph | None:
+    """Return the topology singleton, initialising once on first call."""
+    global _topo, _topo_ready
+    if _topo_ready:
+        return _topo
+    _topo_ready = True
+    t = TopologyGraph()
+    try:
+        t.initialize()
+        _topo = t
+    except Exception as exc:
+        print(f"[Agents] Neo4j unavailable: {exc}")
+        _topo = None
+    return _topo
 
 
 def coordinator_node(state: AgentState) -> dict[str, Any]:
@@ -81,12 +98,13 @@ def trace_node(state: AgentState) -> dict[str, Any]:
 
 def graph_node(state: AgentState) -> dict[str, Any]:
     print(f"[Graph Agent] Walking dependency topology in Neo4j for {state['focal_node']}")
+    topo = _get_topo()
+    if topo is None:
+        return {"dependencies": {"upstream": [], "downstream": [], "blast_radius_nodes": [], "blast_radius_count": 0, "levels": []}}
     try:
-        _topo.initialize()
-        upstream = _topo.upstream_dependencies(state["focal_node"])
-        downstream = _topo.downstream_dependents(state["focal_node"])
-        blast = _topo.blast_radius(state["focal_node"])
-        
+        upstream = topo.upstream_dependencies(state["focal_node"])
+        downstream = topo.downstream_dependents(state["focal_node"])
+        blast = topo.blast_radius(state["focal_node"])
         return {
             "dependencies": {
                 "upstream": upstream,
@@ -98,43 +116,56 @@ def graph_node(state: AgentState) -> dict[str, Any]:
         }
     except Exception as e:
         print(f"[Graph Agent] Neo4j dependency lookup failed: {e}")
-        return {"dependencies": {"upstream": [], "downstream": [], "blast_radius_nodes": [], "blast_radius_count": 0}}
+        return {"dependencies": {"upstream": [], "downstream": [], "blast_radius_nodes": [], "blast_radius_count": 0, "levels": []}}
 
 
 def rag_node(state: AgentState) -> dict[str, Any]:
-    print(f"[RAG Agent] Searching similar incident runbooks in Qdrant for {state['focal_node']}")
+    print(f"[RAG Agent] GraphRAG: Qdrant + Neo4j search for {state['focal_node']}")
     try:
-        # Search for SOPs based on focal node and anomaly details
-        query = f"network anomaly or latency on {state['focal_node']}"
-        sops = rag.search_sops(query, limit=2)
-        return {"rag_documents": sops}
+        # Build query from focal node + any anomaly/alert event descriptions
+        anom_descs = [
+            e.signature for e in state["raw_events"]
+            if e.event_type.value in ("anomaly", "security_alert") and e.signature
+        ][:3]
+        query = f"network anomaly on {state['focal_node']}"
+        if anom_descs:
+            query = f"{' '.join(anom_descs)} on {state['focal_node']}"
+        docs = graphrag.search(query, focal_node=state["focal_node"], limit=3)
+        return {"rag_documents": docs}
     except Exception as e:
-        print(f"[RAG Agent] Qdrant SOP lookup failed: {e}")
+        print(f"[RAG Agent] GraphRAG lookup failed: {e}")
         return {"rag_documents": []}
 
 
 def root_cause_node(state: AgentState) -> dict[str, Any]:
     print(f"[Root Cause Agent] Running causal inference scoring...")
+    topo = _get_topo()
+    if topo is None:
+        # Fallback: build a minimal topology just for the RCA engine
+        topo_fallback = TopologyGraph()
+        engine = RCAEngine(topo_fallback)
+    else:
+        engine = RCAEngine(topo)
     try:
-        _topo.initialize()
-        engine = RCAEngine(_topo)
-        
         # Build incident deterministically using the RCAEngine logic
         incident = engine.build_incident(
             focal_node=state["focal_node"],
             window_events=state["raw_events"],
-            history=state["history"]
+            history=state["history"],
         )
-        
-        # Add Qdrant RAG matches as a historical evidence factor in the hypotheses
+
+        # Award historical_pattern_match bonus when GraphRAG found a matching runbook
         hypotheses = incident.hypotheses
         if state["rag_documents"] and hypotheses:
             for h in hypotheses:
-                # Add points to confidence score if a runbook matches the root cause kind
-                if any(doc.get("source") for doc in state["rag_documents"]):
+                matching = [
+                    doc for doc in state["rag_documents"]
+                    if doc.get("source") and h.get("kind", "") in doc.get("text", "").lower()
+                ]
+                if matching:
                     h["score_breakdown"]["historical_pattern_match"] = 10
                     h["confidence"] = min(1.0, h["confidence"] + 0.1)
-                    
+
         return {"hypotheses": hypotheses}
     except Exception as e:
         print(f"[Root Cause Agent] Causal inference failed: {e}")

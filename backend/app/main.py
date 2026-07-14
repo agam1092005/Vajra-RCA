@@ -18,7 +18,7 @@ from .core.events import bus
 from .db.store import store
 from .llm import gemini
 from .pipeline import Pipeline
-from .rag.qdrant import rag
+from .rag.graphrag import graphrag
 from .utils.reporter import generate_and_upload_report
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
@@ -45,7 +45,8 @@ _status: dict = {"ready": False}
 async def _startup() -> None:
     # 1. Connect to Postgres
     await store.initialize()
-    # 2. Connect to Qdrant
+    # 2. Connect to Qdrant + seed all 8 SOPs
+    from .rag.qdrant import rag
     rag.initialize()
     # 3. Connect to Kafka
     await bus.start()
@@ -193,6 +194,51 @@ async def inject_config(body: InjectIn) -> dict:
 @api.get("/api/audit")
 async def audit(limit: int = 200) -> list[dict]:
     return to_jsonable(await store.audit_trail(limit=limit))
+
+
+@api.get("/api/incidents/{incident_id}/similar")
+async def incident_similar(incident_id: str) -> list[dict]:
+    """GraphRAG: topology-aware similar SOPs / runbooks for this incident."""
+    inc = await store.get_incident(incident_id)
+    if not inc:
+        raise HTTPException(404, "incident not found")
+    try:
+        results = graphrag.search_for_incident(inc)
+    except Exception as exc:
+        results = [{"error": str(exc)}]
+    return to_jsonable(results)
+
+
+@api.get("/api/detectors/status")
+async def detectors_status() -> dict:
+    """Status of all running detectors including Kitsune warmup."""
+    return to_jsonable({
+        "kitsune":           pipeline.kitsune.stats(),
+        "isolation_forest":  {
+            "fitted": pipeline.detector_report is not None,
+            "report": vars(pipeline.detector_report) if pipeline.detector_report else {},
+        },
+        "vajra_ml":          {"models_dir": "Vajra_SIH/ml_models"},
+        "hdfs_log_replay":   {
+            "enabled": pipeline._hdfs_df is not None,
+            "events":  len(pipeline._hdfs_df) if pipeline._hdfs_df is not None else 0,
+        },
+    })
+
+
+
+@api.post("/api/rag/reseed")
+async def rag_reseed() -> dict:
+    """Force-drop and reseed the Qdrant SOP collection with stable embeddings."""
+    from .rag.qdrant import rag, COLLECTION_NAME
+    try:
+        if rag.client:
+            rag.client.delete_collection(COLLECTION_NAME)
+        rag.initialize()
+        count = rag.client.count(COLLECTION_NAME).count if rag.client else 0
+        return {"ok": True, "sop_count": count}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 # ------------------------- Socket.IO -------------------------

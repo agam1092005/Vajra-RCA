@@ -354,11 +354,10 @@ export default function Dashboard() {
           </Section>
         </div>
 
-        {/* right: incident detail */}
         <div className="col-span-12 min-h-0 lg:col-span-5">
           <div className="panel h-full overflow-hidden">
             {selected ? (
-              <IncidentDetail id={selected} />
+              <IncidentDetail id={selected} liveBusinessImpact={metrics?.business_impact} />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-[var(--muted)]">
                 Select an incident

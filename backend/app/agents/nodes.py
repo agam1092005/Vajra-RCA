@@ -184,12 +184,16 @@ def root_cause_node(state: AgentState) -> dict[str, Any]:
 def report_node(state: AgentState) -> dict[str, Any]:
     print(f"[Report Agent] Synthesizing natural-language incident report...")
     import uuid
-    # Mock/deterministic default incident structure to feed explain_incident
+    # Calculate real severity based on the maximum severity of raw alerts and anomalies
+    primary_events = [e for e in state["raw_events"] if e.event_type in (EventType.ANOMALY, EventType.SECURITY_ALERT)]
+    _SEV_ORDER = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+    sev_val = max(primary_events, key=lambda e: _SEV_ORDER.get(e.severity.value, 0)).severity.value if primary_events else "low"
+
     temp_incident = {
         "incident_id": "lg_" + uuid.uuid4().hex[:10],
         "focal_node": state["focal_node"],
         "title": f"Causal Anomaly on {state['focal_node']}",
-        "severity": "high",
+        "severity": sev_val,
         "window_start": min((e.timestamp for e in state["raw_events"]), default=time.time()),
         "window_end": max((e.timestamp for e in state["raw_events"]), default=time.time()),
         "detected_at": time.time(),
@@ -222,7 +226,7 @@ def report_node(state: AgentState) -> dict[str, Any]:
         "depth": len(state["dependencies"].get("levels", [])),
         "levels": state["dependencies"].get("levels", [])
     }
-    business_impact = engine._calculate_business_impact(state["focal_node"], state["hypotheses"], br_dict)
+    business_impact = engine._calculate_business_impact(state["focal_node"], state["hypotheses"], br_dict, state["raw_events"])
     temp_incident["business_impact"] = business_impact
 
     # Use the fast deterministic explanation here so the pipeline never blocks
@@ -233,7 +237,7 @@ def report_node(state: AgentState) -> dict[str, Any]:
     final_report = {
         **temp_incident,
         "title": temp_incident["hypotheses"][0]["root_cause"] if temp_incident["hypotheses"] else temp_incident["title"],
-        "severity": temp_incident["hypotheses"][0].get("severity", "high") if temp_incident["hypotheses"] else "high",
+        "severity": temp_incident["hypotheses"][0].get("severity", temp_incident["severity"]) if temp_incident["hypotheses"] else temp_incident["severity"],
         "summary": temp_incident["hypotheses"][0].get("explanation", temp_incident["summary"]) if temp_incident["hypotheses"] else temp_incident["summary"],
         "explanation": explanation,
         "blast_radius": br_dict,

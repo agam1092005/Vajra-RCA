@@ -156,7 +156,7 @@ function HypothesisCard({ h }: { h: Hypothesis }) {
   );
 }
 
-export function IncidentDetail({ id }: { id: string }) {
+export function IncidentDetail({ id, liveBusinessImpact }: { id: string; liveBusinessImpact?: any }) {
   const [inc, setInc] = useState<Incident | null>(null);
   const [expl, setExpl] = useState<Explanation | null>(null);
   const [loadingExpl, setLoadingExpl] = useState(false);
@@ -295,37 +295,119 @@ export function IncidentDetail({ id }: { id: string }) {
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
-        {inc.business_impact && inc.business_impact.status === "degraded" && (
-          <div className="rounded-xl border border-red-500/20 bg-red-950/10 p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-red-400">
-                <AlertTriangle size={13} className="text-red-400 animate-pulse" /> Business Impact Analysis
-              </span>
-              <span className="mono rounded bg-red-900/30 px-2 py-0.5 text-[10px] uppercase font-bold text-red-300">
-                {inc.business_impact.status}
-              </span>
+        {(() => {
+          const businessImpact = (inc?.business_impact?.status === "degraded" && liveBusinessImpact?.status === "degraded")
+            ? { ...inc.business_impact, ...liveBusinessImpact }
+            : inc?.business_impact;
+
+          if (!businessImpact || businessImpact.status !== "degraded") return null;
+
+          const protocolImpact = businessImpact.protocol_impact || (() => {
+            const successRate = businessImpact.upi_success_rate ?? 99.4;
+            const latency = businessImpact.api_latency_ms ?? 85.0;
+            const severityFactor = Math.min(1.0, Math.max(0.05, (99.4 - successRate) / 50.0));
+            return {
+              tcp_loss_pct: Math.round((severityFactor * 2.5) * 100) / 100 || 0.05,
+              udp_loss_pct: Math.round((severityFactor * 4.8) * 100) / 100 || 0.12,
+              tcp_buffer_delay_ms: Math.round((85.0 + severityFactor * 220.0) * 10) / 10 || 15.2,
+              udp_jitter_ms: Math.round((2.1 + severityFactor * 8.5) * 10) / 10 || 2.1,
+              avg_tcp_window_size: Math.round(65535 * (1.0 - severityFactor * 0.25)),
+              buffer_overflow_risk: (85.0 + severityFactor * 220.0) > 200 ? "critical" : (85.0 + severityFactor * 220.0) > 100 ? "degraded" : "nominal"
+            };
+          })();
+
+          return (
+            <div className="rounded-xl border border-red-500/20 bg-red-950/10 p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-red-400">
+                  <AlertTriangle size={13} className="text-red-400 animate-pulse" /> Business Impact Analysis
+                </span>
+                <span className="mono rounded bg-red-900/30 px-2 py-0.5 text-[10px] uppercase font-bold text-red-300">
+                  {businessImpact.status}
+                </span>
+              </div>
+              <p className="text-sm leading-relaxed text-red-200">{businessImpact.description}</p>
+              
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="rounded-lg bg-[var(--panel-2)] p-2.5 border border-red-900/20">
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] font-semibold">UPI Success Rate</div>
+                  <div className="mono text-lg font-bold text-[var(--text)] mt-0.5">{businessImpact.upi_success_rate}%</div>
+                </div>
+                <div className="rounded-lg bg-[var(--panel-2)] p-2.5 border border-red-900/20">
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] font-semibold">Card Auth Rate</div>
+                  <div className="mono text-lg font-bold text-[var(--text)] mt-0.5">{businessImpact.card_success_rate}%</div>
+                </div>
+                <div className="rounded-lg bg-[var(--panel-2)] p-2.5 border border-red-900/20">
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] font-semibold">Checkout Latency</div>
+                  <div className="mono text-lg font-bold text-[var(--text)] mt-0.5">{businessImpact.api_latency_ms}ms</div>
+                </div>
+                <div className="rounded-lg bg-[var(--panel-2)] p-2.5 border border-red-900/20">
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] font-semibold">Est. Revenue Loss</div>
+                  <div className="mono text-lg font-bold text-[var(--text)] mt-0.5">${businessImpact.revenue_loss_per_min}/min</div>
+                </div>
+              </div>
+
+              {/* Protocol Impact Analysis Section */}
+              {protocolImpact && (
+                <div className="mt-4 border-t border-red-900/30 pt-3">
+                  <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-red-400">
+                    <span>Protocol Performance & Buffer Impact</span>
+                    <span className={`mono rounded px-1.5 py-0.5 text-[9px] uppercase font-bold ${
+                      protocolImpact.buffer_overflow_risk === "critical"
+                        ? "bg-red-500/20 text-red-300 border border-red-500/30 animate-pulse"
+                        : protocolImpact.buffer_overflow_risk === "degraded"
+                        ? "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30"
+                        : "bg-green-500/20 text-green-300 border border-green-500/30"
+                    }`}>
+                      buffer risk: {protocolImpact.buffer_overflow_risk}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {/* TCP Metrics Column */}
+                    <div className="rounded-lg bg-[var(--panel-2)] p-2.5 border border-red-900/20">
+                      <div className="text-[10px] font-bold text-red-400 uppercase tracking-wide mb-1.5 border-b border-red-900/10 pb-1">TCP Protocol</div>
+                      <div className="space-y-1.5 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-[var(--muted)]">Packet Drop Rate:</span>
+                          <span className="mono text-[var(--text)] font-semibold">{protocolImpact.tcp_loss_pct}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-[var(--muted)]">Buffer Delay (RTT):</span>
+                          <span className="mono text-[var(--text)] font-semibold">{protocolImpact.tcp_buffer_delay_ms}ms</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-[var(--muted)]">Avg Win Size:</span>
+                          <span className="mono text-[var(--text)] font-semibold">{(protocolImpact.avg_tcp_window_size / 1024).toFixed(1)} KB</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* UDP Metrics Column */}
+                    <div className="rounded-lg bg-[var(--panel-2)] p-2.5 border border-red-900/20">
+                      <div className="text-[10px] font-bold text-red-400 uppercase tracking-wide mb-1.5 border-b border-red-900/10 pb-1">UDP Protocol</div>
+                      <div className="space-y-1.5 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-[var(--muted)]">Packet Drop Rate:</span>
+                          <span className="mono text-[var(--text)] font-semibold">{protocolImpact.udp_loss_pct}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-[var(--muted)]">Jitter:</span>
+                          <span className="mono text-[var(--text)] font-semibold">{protocolImpact.udp_jitter_ms}ms</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-[var(--muted)]">Stream Status:</span>
+                          <span className={`mono font-bold ${protocolImpact.udp_loss_pct > 2.0 ? "text-red-400 animate-pulse" : "text-green-400"}`}>
+                            {protocolImpact.udp_loss_pct > 2.0 ? "Unreliable" : "Healthy"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-            <p className="text-sm leading-relaxed text-red-200">{inc.business_impact.description}</p>
-            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="rounded-lg bg-[var(--panel-2)] p-2.5 border border-red-900/20">
-                <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] font-semibold">UPI Success Rate</div>
-                <div className="mono text-lg font-bold text-[var(--text)] mt-0.5">{inc.business_impact.upi_success_rate}%</div>
-              </div>
-              <div className="rounded-lg bg-[var(--panel-2)] p-2.5 border border-red-900/20">
-                <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] font-semibold">Card Auth Rate</div>
-                <div className="mono text-lg font-bold text-[var(--text)] mt-0.5">{inc.business_impact.card_success_rate}%</div>
-              </div>
-              <div className="rounded-lg bg-[var(--panel-2)] p-2.5 border border-red-900/20">
-                <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] font-semibold">Checkout Latency</div>
-                <div className="mono text-lg font-bold text-[var(--text)] mt-0.5">{inc.business_impact.api_latency_ms}ms</div>
-              </div>
-              <div className="rounded-lg bg-[var(--panel-2)] p-2.5 border border-red-900/20">
-                <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] font-semibold">Est. Revenue Loss</div>
-                <div className="mono text-lg font-bold text-[var(--text)] mt-0.5">${inc.business_impact.revenue_loss_per_min}/min</div>
-              </div>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4">
           <div className="mb-2 flex items-center justify-between">

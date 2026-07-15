@@ -100,6 +100,17 @@ def flow_to_events(row: pd.Series) -> list[Event]:
         "spkts": row.get("Spkts"), "dpkts": row.get("Dpkts"),
         "sload": row.get("Sload"), "dload": row.get("Dload"),
         "role": role, "attack_cat": attack_cat, "label": int(row["Label"]),
+        
+        # Network telemetry attributes for Buffer and Packet Drop analysis
+        "sloss": float(row.get("sloss") or 0.0),
+        "dloss": float(row.get("dloss") or 0.0),
+        "tcprtt": float(row.get("tcprtt") or 0.0),
+        "synack": float(row.get("synack") or 0.0),
+        "ackdat": float(row.get("ackdat") or 0.0),
+        "sjit": float(row.get("Sjit") or 0.0),
+        "djit": float(row.get("Djit") or 0.0),
+        "swin": float(row.get("swin") or 0.0),
+        "dwin": float(row.get("dwin") or 0.0),
     }
 
     events = [Event(

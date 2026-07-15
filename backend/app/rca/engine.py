@@ -123,7 +123,7 @@ class RCAEngine:
         br = self.topology.blast_radius(focal_node)
         title = self._title(focal_node, hypotheses)
         summary = self._summary(focal_node, hypotheses, first_anomaly_ts, br)
-        business_impact = self._calculate_business_impact(focal_node, hypotheses, br)
+        business_impact = self._calculate_business_impact(focal_node, hypotheses, br, window_events)
         incident = Incident(
             incident_id=uuid.uuid4().hex[:12], focal_node=focal_node, title=title,
             severity=severity, window_start=ws, window_end=we, detected_at=time.time(),
@@ -137,7 +137,7 @@ class RCAEngine:
         )
         return incident
 
-    def _calculate_business_impact(self, focal_node: str, hypotheses: list[Hypothesis], br: dict) -> dict:
+    def _calculate_business_impact(self, focal_node: str, hypotheses: list[Hypothesis], br: dict, events: list[Event] | None = None) -> dict:
         # Default/Normal values
         success_rate = 99.4 # UPI/Credit Card processing success rate
         latency_ms = 85.0
@@ -146,6 +146,41 @@ class RCAEngine:
         impact_description = "All core business services operating normally."
         status = "nominal"
         affected_flow = "None"
+
+        # Default protocol impact baseline values
+        tcp_loss_pct = 0.05
+        udp_loss_pct = 0.12
+        tcp_buffer_delay_ms = 15.2
+        udp_jitter_ms = 2.1
+        avg_tcp_win = 65535.0
+        buffer_risk = "nominal"
+
+        # Calculate live protocol metrics from event attributes if events are provided
+        if events:
+            tcp_flows = [e for e in events if e.event_type.value == "network_flow" and str(e.attributes.get("proto") or "").lower() == "tcp"]
+            udp_flows = [e for e in events if e.event_type.value == "network_flow" and str(e.attributes.get("proto") or "").lower() == "udp"]
+            
+            if tcp_flows:
+                tcp_lost = sum(float(e.attributes.get("sloss") or 0) + float(e.attributes.get("dloss") or 0) for e in tcp_flows)
+                tcp_pkts = sum(float(e.attributes.get("spkts") or 0) + float(e.attributes.get("dpkts") or 0) for e in tcp_flows)
+                tcp_loss_pct = (tcp_lost / max(1.0, tcp_pkts)) * 100.0
+                
+                tcp_rtts = [float(e.attributes.get("tcprtt") or 0) * 1000.0 for e in tcp_flows if float(e.attributes.get("tcprtt") or 0) > 0]
+                if tcp_rtts:
+                    tcp_buffer_delay_ms = sum(tcp_rtts) / len(tcp_rtts)
+                
+                tcp_wins = [float(e.attributes.get("swin") or 0) for e in tcp_flows if float(e.attributes.get("swin") or 0) > 0]
+                if tcp_wins:
+                    avg_tcp_win = sum(tcp_wins) / len(tcp_wins)
+                    
+            if udp_flows:
+                udp_lost = sum(float(e.attributes.get("sloss") or 0) + float(e.attributes.get("dloss") or 0) for e in udp_flows)
+                udp_pkts = sum(float(e.attributes.get("spkts") or 0) + float(e.attributes.get("dpkts") or 0) for e in udp_flows)
+                udp_loss_pct = (udp_lost / max(1.0, udp_pkts)) * 100.0
+                
+                udp_jitters = [float(e.attributes.get("sjit") or 0) + float(e.attributes.get("djit") or 0) for e in udp_flows]
+                if udp_jitters:
+                    udp_jitter_ms = sum(udp_jitters) / len(udp_jitters)
 
         if hypotheses:
             top = hypotheses[0]
@@ -162,11 +197,19 @@ class RCAEngine:
                 blast_count = br.get("count", 1)
                 severity_factor = min(1.0, max(0.2, (blast_count * 0.15) + 0.2))
                 
-                # Calculate metrics dynamically using the severity scaling factor
-                success_rate = round(99.4 - (severity_factor * 50.0), 1)
-                latency_ms = round(85.0 + (severity_factor * 1500.0), 1)
-                order_throughput = round(15.0 - (severity_factor * 12.0), 1)
-                revenue_loss = round(severity_factor * 150.0, 1)
+                # Calculate metrics dynamically using the severity scaling factor with realistic fluctuations
+                import random
+                success_rate = round(99.4 - (severity_factor * 50.0) + random.uniform(-1.5, 1.5), 1)
+                latency_ms = round(85.0 + (severity_factor * 1500.0) + random.uniform(-40.0, 40.0), 1)
+                order_throughput = round(15.0 - (severity_factor * 12.0) + random.uniform(-0.5, 0.5), 1)
+                revenue_loss = round(severity_factor * 150.0 + random.uniform(-5.0, 5.0), 1)
+
+                # Scale TCP/UDP protocol metrics based on severity factor
+                tcp_buffer_delay_ms += severity_factor * 220.0
+                udp_jitter_ms += severity_factor * 8.5
+                tcp_loss_pct += severity_factor * 1.5
+                udp_loss_pct += severity_factor * 2.8
+                avg_tcp_win = max(4096.0, avg_tcp_win * (1.0 - min(0.8, severity_factor * 0.25)))
 
                 if kind == "config_change" or "redis" in root_cause.lower() or "database" in root_cause.lower():
                     impact_description = f"Configuration update on {focal_node} created downstream performance bottleneck, dropping payment success rate to {success_rate}% and causing an estimated revenue loss of ${revenue_loss}/min."
@@ -178,6 +221,14 @@ class RCAEngine:
                     impact_description = f"Cascading topology degradation originating from {focal_node} affected database connection pool, dropping payment success rate to {success_rate}%."
                     affected_flow = "Internal Transaction Processing"
 
+        # Buffer risk classification
+        if tcp_buffer_delay_ms > 400.0 or tcp_loss_pct > 6.0:
+            buffer_risk = "critical"
+        elif tcp_buffer_delay_ms > 150.0 or tcp_loss_pct > 2.0:
+            buffer_risk = "degraded"
+        else:
+            buffer_risk = "nominal"
+
         return {
             "status": status,
             "upi_success_rate": success_rate,
@@ -186,7 +237,15 @@ class RCAEngine:
             "order_throughput_ops": order_throughput,
             "revenue_loss_per_min": revenue_loss,
             "description": impact_description,
-            "affected_flow": affected_flow
+            "affected_flow": affected_flow,
+            "protocol_impact": {
+                "tcp_loss_pct": round(tcp_loss_pct, 2),
+                "udp_loss_pct": round(udp_loss_pct, 2),
+                "tcp_buffer_delay_ms": round(tcp_buffer_delay_ms, 1),
+                "udp_jitter_ms": round(udp_jitter_ms, 1),
+                "avg_tcp_window_size": int(avg_tcp_win),
+                "buffer_overflow_risk": buffer_risk
+            }
         }
 
     def _build_recommendation(self, action: str, tier: RiskTier, reason: str, node_to_act_on: str, requires_human_approval: bool = False) -> dict:

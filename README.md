@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ Vajra RCA
+# Vajra RCA
 
 ### Network Anomaly Root-Cause Assistant
 
@@ -17,28 +17,28 @@
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
-- [What is Vajra RCA?](#-what-is-vajra-rca)
-- [Datasets](#-datasets)
-- [ML Models & Parameters](#-ml-models--parameters)
-- [Key Features](#-key-features)
-- [System Architecture](#-system-architecture)
-- [Use Cases](#-use-cases)
-- [Business Impact Analysis](#-business-impact-analysis)
-- [Tech Stack](#-tech-stack)
-- [Project Structure](#-project-structure)
-- [How to Run the Project](#-how-to-run-the-project)
-- [API Reference](#-api-reference)
-- [Detection & ML Pipeline](#-detection--ml-pipeline)
-- [Multi-Agent RCA Pipeline](#-multi-agent-rca-pipeline)
-- [Configuration Reference](#-configuration-reference)
-- [Testing](#-testing)
-- [Roadmap](#-roadmap)
+- [What is Vajra RCA?](#what-is-vajra-rca)
+- [Datasets](#datasets)
+- [ML Models & Parameters](#ml-models--parameters)
+- [Key Features](#key-features)
+- [System Architecture](#system-architecture)
+- [Use Cases](#use-cases)
+- [Business Impact Analysis](#business-impact-analysis)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [How to Run the Project](#how-to-run-the-project)
+- [API Reference](#api-reference)
+- [Detection & ML Pipeline](#detection--ml-pipeline)
+- [Multi-Agent RCA Pipeline](#multi-agent-rca-pipeline)
+- [Configuration Reference](#configuration-reference)
+- [Testing](#testing)
+- [Roadmap](#roadmap)
 
 ---
 
-## 🔍 What is Vajra RCA?
+## What is Vajra RCA?
 
 **Vajra RCA** (Root-Cause Assistant) is an enterprise-grade observability and diagnostics platform purpose-built for network operations centers (NOCs), security operations centers (SOCs), and site reliability engineering (SRE) teams. It goes beyond traditional alerting by answering the critical question: **"Why did this happen?"**
 
@@ -54,7 +54,7 @@ Unlike conventional monitoring tools that simply flag anomalies, Vajra RCA:
 
 ---
 
-## 📂 Datasets
+## Datasets
 
 Vajra RCA is powered by **three real, publicly available cybersecurity and systems datasets**. No synthetic or fabricated data is used at any point — all detection, correlation, and scoring operates on genuine records.
 
@@ -188,7 +188,7 @@ Vajra RCA is powered by **three real, publicly available cybersecurity and syste
 
 ---
 
-## 🤖 ML Models & Parameters
+## ML Models & Parameters
 
 Vajra RCA employs three independent ML detection engines plus a post-hoc signature classifier. Each is configured with specific hyperparameters tuned for the production deployment.
 
@@ -323,8 +323,8 @@ Vajra RCA employs three independent ML detection engines plus a post-hoc signatu
 ### Model 3: Vajra ML Bridge (Pre-trained Classifiers)
 
 > **Module**: `ingestion/vajra_bridge.py`  
-> **Source Models**: `Vajra_SIH/ml_models/` (`.pkl` and `.joblib` serialized)  
-> **Loader**: `MLModelManager` from the Vajra_SIH project  
+> **Source Models**: `ml_models/` (`.pkl` and `.joblib` serialized)  
+> **Loader**: `MLModelManager`  
 > **Purpose**: Supervised threat classifiers trained on labelled datasets — complement the unsupervised detectors  
 
 **Loaded Models**:
@@ -397,7 +397,7 @@ Vajra RCA employs three independent ML detection engines plus a post-hoc signatu
 
 ---
 
-## 🚀 Key Features
+## Key Features
 
 ### 1. Multi-Source Signal Ingestion Layer
 
@@ -409,7 +409,7 @@ The ingestion layer consumes five heterogeneous signal types simultaneously and 
 | **System Logs** | HDFS structured logs | `ingestion/hdfs.py` | Parsed syslog records (Date/Time/Level/Component/Content) with block-level anomaly ground truth labels |
 | **Security Alerts** | UNSW-NB15 attack labels + Vajra ML | `ingestion/unsw.py`, `ingestion/vajra_bridge.py` | Real labelled attacks (Generic, Exploits, DoS, Backdoor, Shellcode, Worms, etc.) mapped to severity levels |
 | **Configuration Changes** | Real git repository | `ingestion/config_monitor.py` | Every change is a real commit with actor, timestamp, diff, and governance mapping — not simulated |
-| **ML Model Predictions** | Vajra_SIH trained models | `ingestion/vajra_bridge.py` | Pre-trained sklearn/joblib models for network anomaly, DDoS, insider threat, and data exfiltration detection |
+| **ML Model Predictions** | Pre-trained models | `ingestion/vajra_bridge.py` | Pre-trained sklearn/joblib models for network anomaly, DDoS, insider threat, and data exfiltration detection |
 
 **Unified Event Schema** (`core/events.py`): Every signal is normalized into a single `Event` dataclass with fields for event type, source, node, timestamp, severity, confidence, signature, description, and source-specific attributes — enabling true cross-layer correlation.
 
@@ -435,7 +435,7 @@ Three detection engines run simultaneously, each providing independent anomalous
 
 #### Vajra ML Bridge (Pre-trained Classifiers)
 - **Module**: `ingestion/vajra_bridge.py`
-- **Models**: Loads trained `.pkl`/`.joblib` models from the Vajra_SIH project via `MLModelManager`
+- **Models**: Loads pre-trained `.pkl`/`.joblib` models via the integrated `MLModelManager`
 - **Threat Types**: Network anomaly, DDoS attack, insider threat, suspicious access timing, data exfiltration (email/HTTP), suspicious device usage
 - **Integration**: Each model's threat prediction is converted into a `SECURITY_ALERT` event with confidence score
 
@@ -509,9 +509,9 @@ The score is shown in the UI so operators can see exactly **why** a hypothesis r
 
 Every hypothesis carries three evidence buckets:
 
-- **✅ Confirmed** — Direct, verifiable proof (e.g., a config commit diff, a matching attack signature, a dependency path)
-- **🔗 Correlated** — Same-window signals not proven causal (e.g., concurrent attack traffic under a config-change hypothesis)
-- **❓ Missing** — Data that would confirm/reject the hypothesis but is unavailable (e.g., packet-drop telemetry for the window)
+- **Confirmed** — Direct, verifiable proof (e.g., a config commit diff, a matching attack signature, a dependency path)
+- **Correlated** — Same-window signals not proven causal (e.g., concurrent attack traffic under a config-change hypothesis)
+- **Missing** — Data that would confirm/reject the hypothesis but is unavailable (e.g., packet-drop telemetry for the window)
 
 #### Risk-Tiered Remediation Recommendations
 
@@ -664,75 +664,124 @@ A dark-themed, real-time operations dashboard built with Next.js 16, React 19, a
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
-```
-┌─────────────────────────────────── Data Sources ──────────────────────────────────┐
-│                                                                                   │
-│  UNSW-NB15 Flows ─┐                                                              │
-│  NSL-KDD Records  ├── Ingestion Adapters ──▶ Normalized Events ──▶ Kafka Bus     │
-│  HDFS Logs ────────┤     (unsw.py,                (Event schema)     (aiokafka)   │
-│  Config Changes ───┘      hdfs.py,                                       │        │
-│   (Real git repo)         config_monitor.py,                             │        │
-│                           vajra_bridge.py)                               │        │
-│                                                                          ▼        │
-│                                                                                   │
-│  ┌──────────────── Detection Layer ──────────────────────────────────────┐        │
-│  │  Isolation Forest (batch, unsupervised, 200 estimators)              │        │
-│  │  Kitsune KitNET (online, autoencoder ensemble, NDSS 2018)            │        │
-│  │  Vajra ML Bridge (pre-trained sklearn/joblib classifiers)            │        │
-│  │  Behavioral Signatures (MITRE ATT&CK mapped)                        │        │
-│  └──────────────────────────────┬───────────────────────────────────────┘        │
-│                                 │                                                │
-│  ┌────────── Topology ──────────┤──────── Correlation ──────────────────┐        │
-│  │  Neo4j Dependency Graph      │  5-min sliding window               │        │
-│  │  Upstream/Downstream/Blast   │  Temporal ordering                  │        │
-│  │  Dependency path traversal   │  Config-change timing (5s causal)   │        │
-│  └──────────────────────────────┤  Historical pattern match           │        │
-│                                 │  Independent corroboration          │        │
-│  ┌────────── GraphRAG ──────────┤                                      │        │
-│  │  Qdrant (8 SOPs, 768-dim)    │                                      │        │
-│  │  + Neo4j topology enrichment │                                      │        │
-│  └──────────────────────────────┘                                      │        │
-│                                 │                                                │
-│  ┌────────── LangGraph 8-Agent Pipeline ────────────────────────────────┐        │
-│  │  Coordinator → Metric → Log → Trace → Graph → RAG → RootCause →    │        │
-│  │  Report (streamed node-by-node to UI via Socket.IO)                 │        │
-│  └──────────────────────────────┬───────────────────────────────────────┘        │
-│                                 │                                                │
-│           ┌─────────────────────┼─────────────────────┐                          │
-│           ▼                     ▼                     ▼                          │
-│   PostgreSQL Ledger     FastAPI + Socket.IO     MinIO Reports                    │
-│   (incidents + audit)   (REST API + live WS)    (PDF archival)                   │
-│                                 │                                                │
-│                                 ▼                                                │
-│                          Next.js Dashboard                                       │
-│                    (React 19, TailwindCSS 4, React Flow)                         │
-│                                                                                   │
-└───────────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph DataSources["Data Sources"]
+        UNSW["UNSW-NB15 Flows"]
+        NSL["NSL-KDD Records"]
+        HDFS["HDFS System Logs"]
+        Config["Config Changes (Git)"]
+    end
+
+    subgraph Ingestion["Ingestion Layer"]
+        Adapters["Ingestion Adapters<br/>(unsw.py, hdfs.py, config_monitor.py, vajra_bridge.py)"]
+        EventBus["Kafka Event Bus / In-Memory Pub-Sub<br/>(core/events.py)"]
+    end
+
+    subgraph Detection["Ensemble Detection Layer"]
+        IForest["Isolation Forest Anomaly Detector"]
+        Kitsune["Kitsune Online Autoencoder Ensemble"]
+        MLBridge["ML Bridge Pre-trained Classifiers"]
+        Sigs["Behavioral Signature Classifier"]
+    end
+
+    subgraph Correlation["Correlation, Topology & GraphRAG"]
+        Neo4j["Neo4j Dependency Graph"]
+        GraphRAG["Qdrant GraphRAG (SOPs)"]
+        SlidingWindow["5-Min Sliding Window & Causal Scorer"]
+    end
+
+    subgraph Pipeline["LangGraph 8-Agent Diagnostic Workflow"]
+        Agents["Coordinator ➔ Metric ➔ Log ➔ Trace ➔ Graph ➔ RAG ➔ RootCause ➔ Report"]
+    end
+
+    subgraph Outputs["Persistence, API & Presentation"]
+        Postgres[(PostgreSQL Incident Ledger)]
+        FastAPI["FastAPI + Socket.IO Server"]
+        MinIO[(MinIO PDF Report Archive)]
+        Dashboard["Next.js Operations Dashboard"]
+    end
+
+    UNSW & NSL & HDFS & Config --> Adapters
+    Adapters --> EventBus
+    EventBus --> IForest & Kitsune & MLBridge
+    IForest --> Sigs
+    
+    IForest & Kitsune & MLBridge & Sigs --> SlidingWindow
+    Neo4j <--> SlidingWindow
+    GraphRAG <--> SlidingWindow
+
+    SlidingWindow --> Agents
+    
+    Agents --> Postgres
+    Agents --> FastAPI
+    Agents --> MinIO
+    FastAPI --> Dashboard
 ```
 
 ### Data Flow
 
-```
-UNSW-NB15 flows ─┐
-NSL-KDD          ├─▶ Ingestion ─▶ Events ─▶ Kafka ─▶ Detection ─▶ Sliding Window ─▶ RCA Engine
-HDFS logs        │                                    (IForest +     (5-min)           (Causal
-Config monitor ──┘                                     Kitsune +                       Scoring)
-                                                       Vajra ML)          │
-                                                                          ▼
-                        Neo4j topology ──────────────────▶ LangGraph 8-Agent Pipeline
-                        Qdrant GraphRAG ─────────────────▶        │
-                                                                  ▼
-                 Postgres ◀── Incident + Audit ──▶ FastAPI REST + Socket.IO ──▶ Next.js
-                                                                  │
-                         Gemini narrative (on demand) ◀───────────┘
-                         MinIO PDF reports (on demand) ◀──────────┘
+```mermaid
+flowchart TD
+    subgraph RawData["Raw Telemetry & Changes"]
+        UNSW["UNSW-NB15 Flows"]
+        NSL["NSL-KDD Traffic"]
+        HDFS["HDFS Logs"]
+        Config["Config Repo Commits"]
+    end
+
+    subgraph Normalization["Ingestion & Normalization"]
+        Events["Normalized Events<br/>(core/events.py)"]
+        Kafka["Kafka Event Bus"]
+    end
+
+    subgraph Processing["Detection & Contextualization"]
+        Detectors["Ensemble Detectors<br/>(IForest, Kitsune, ML Bridge)"]
+        Topology["Neo4j Topology<br/>(Dependency Mapping)"]
+        RAG["Qdrant GraphRAG<br/>(Similar SOP Retrieval)"]
+    end
+
+    subgraph Decision["Causal Analysis"]
+        Window["5-Minute Slicing Window"]
+        Causal["Causal Scoring Engine<br/>(rca/engine.py)"]
+        LangGraph["LangGraph Workflow<br/>(8-Agent Diagnostic Path)"]
+    end
+
+    subgraph Persistence["Storage & Exporter"]
+        DB[(PostgreSQL Ledger & Audit)]
+        PDF["ReportLab PDF Generator"]
+        MinIO[(MinIO PDF Storage)]
+    end
+
+    subgraph UserInterface["Presentation & Interaction"]
+        API["FastAPI REST & Socket.IO Websockets"]
+        LLM["Gemini Narratives & Chat (On-Demand)"]
+        UI["Next.js Operations Dashboard"]
+    end
+
+    RawData --> Events
+    Events --> Kafka
+    Kafka --> Detectors
+    
+    Detectors & Topology & RAG --> Window
+    Window --> Causal
+    Causal --> LangGraph
+    
+    LangGraph --> DB
+    LangGraph --> PDF
+    PDF --> MinIO
+    
+    LangGraph & DB & MinIO --> API
+    API --> UI
+    API <--> LLM
+    UI <--> LLM
 ```
 
 ---
 
-## 💼 Use Cases
+## Use Cases
 
 ### 1. Configuration Change Root-Cause Analysis
 **Scenario**: A network administrator commits a routing table change (`gw-1 → gw-2`). Within seconds, downstream services experience anomalous traffic patterns.
@@ -795,7 +844,7 @@ Config monitor ──┘                                     Kitsune +          
 
 ---
 
-## 📊 Business Impact Analysis
+## Business Impact Analysis
 
 Vajra RCA provides two layers of business impact analysis — both algorithmically computed from real event data, not hardcoded:
 
@@ -837,7 +886,7 @@ Each incident carries a dedicated business impact assessment:
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 ### Backend
 
@@ -891,7 +940,7 @@ Each incident carries a dedicated business impact assessment:
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 vajra-rca/
@@ -911,7 +960,7 @@ vajra-rca/
 │   │   │   ├── nsl_kdd.py          # NSL-KDD labelled traffic ingestion
 │   │   │   ├── hdfs.py             # HDFS structured log ingestion
 │   │   │   ├── config_monitor.py   # Real git-backed configuration change monitor
-│   │   │   ├── vajra_bridge.py     # Vajra_SIH ML model bridge
+│   │   │   ├── vajra_bridge.py     # ML model bridge for pre-trained classifiers
 │   │   │   └── schema.py           # Column schemas, port→role mapping, numeric features
 │   │   │
 │   │   ├── detection/
@@ -997,7 +1046,7 @@ vajra-rca/
 
 ---
 
-## ▶️ How to Run the Project
+## How to Run the Project
 
 ### Prerequisites
 
@@ -1050,15 +1099,15 @@ docker compose ps
 ```
 
 All 9 services should show `healthy` status:
-- ✅ PostgreSQL (5432)
-- ✅ Neo4j (7474/7687)
-- ✅ Qdrant (6333/6334)
-- ✅ Kafka (9092)
-- ✅ Elasticsearch (9200)
-- ✅ Prometheus (9090)
-- ✅ Grafana (3001)
-- ✅ MinIO (9000/9001)
-- ✅ OTel Collector (4317/4318)
+- PostgreSQL (5432)
+- Neo4j (7474/7687)
+- Qdrant (6333/6334)
+- Kafka (9092)
+- Elasticsearch (9200)
+- Prometheus (9090)
+- Grafana (3001)
+- MinIO (9000/9001)
+- OTel Collector (4317/4318)
 
 ### Step 3: Start the Backend
 
@@ -1145,7 +1194,7 @@ Without a key, the system is fully functional — explanations and chat use a de
 
 ---
 
-## 📡 API Reference
+## API Reference
 
 ### Health & Status
 
@@ -1200,7 +1249,7 @@ Without a key, the system is fully functional — explanations and chat use a de
 
 ---
 
-## 🔬 Detection & ML Pipeline
+## Detection & ML Pipeline
 
 ### Isolation Forest Validation
 
@@ -1224,7 +1273,7 @@ When the `shap` package is available, `Pipeline.shap_attribution()` provides mod
 
 ---
 
-## 🔄 Multi-Agent RCA Pipeline
+## Multi-Agent RCA Pipeline
 
 The LangGraph pipeline executes in a worker thread with streaming updates:
 
@@ -1248,7 +1297,7 @@ Each agent enriches the shared `AgentState`:
 
 ---
 
-## ⚙️ Configuration Reference
+## Configuration Reference
 
 All settings are environment variables prefixed `VAJRA_` (managed via Pydantic Settings):
 
@@ -1276,7 +1325,7 @@ Frontend: Set `NEXT_PUBLIC_API_URL` in `frontend/.env.local` (default: `http://l
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ```bash
 cd backend
@@ -1303,27 +1352,27 @@ python scripts/verify_e2e.py
 
 ---
 
-## 🗺️ Roadmap
+## Roadmap
 
 | Status | Feature |
 |---|---|
-| ✅ Done | Neo4j dependency topology graph |
-| ✅ Done | Apache Kafka event bus (with in-memory fallback) |
-| ✅ Done | PostgreSQL incident ledger + audit trail |
-| ✅ Done | Qdrant + Neo4j GraphRAG (topology-aware SOP retrieval) |
-| ✅ Done | LangGraph 8-agent multi-agent RCA pipeline |
-| ✅ Done | Kitsune online autoencoder detection |
-| ✅ Done | Vajra ML model bridge (sklearn/joblib classifiers) |
-| ✅ Done | MITRE ATT&CK behavioral signature mapping |
-| ✅ Done | SHAP + baseline-deviation feature attribution |
-| ✅ Done | Real-time business impact metrics (live + per-incident) |
-| ✅ Done | PDF report generation + MinIO archival |
-| ✅ Done | Gemini narrative explanation + grounded chat |
-| ✅ Done | Next.js real-time dashboard with Socket.IO |
-| 🔧 Planned | OpenTelemetry SDK instrumentation for the backend |
-| 🔧 Planned | Prometheus `/metrics` endpoint (Prometheus-format) |
-| 🔧 Planned | Grafana dashboard auto-provisioning with live backend metrics |
-| 🔧 Planned | Elasticsearch log indexing from OTel Collector |
+| Done | Neo4j dependency topology graph |
+| Done | Apache Kafka event bus (with in-memory fallback) |
+| Done | PostgreSQL incident ledger + audit trail |
+| Done | Qdrant + Neo4j GraphRAG (topology-aware SOP retrieval) |
+| Done | LangGraph 8-agent multi-agent RCA pipeline |
+| Done | Kitsune online autoencoder detection |
+| Done | Vajra ML model bridge (sklearn/joblib classifiers) |
+| Done | MITRE ATT&CK behavioral signature mapping |
+| Done | SHAP + baseline-deviation feature attribution |
+| Done | Real-time business impact metrics (live + per-incident) |
+| Done | PDF report generation + MinIO archival |
+| Done | Gemini narrative explanation + grounded chat |
+| Done | Next.js real-time dashboard with Socket.IO |
+| Planned | OpenTelemetry SDK instrumentation for the backend |
+| Planned | Prometheus `/metrics` endpoint (Prometheus-format) |
+| Planned | Grafana dashboard auto-provisioning with live backend metrics |
+| Planned | Elasticsearch log indexing from OTel Collector |
 
 > **Note**: Prometheus is configured to scrape `host.docker.internal:8000` and the OTel Collector is configured to export to Prometheus/Elasticsearch — but the backend does not yet emit OpenTelemetry traces or Prometheus-format metrics. These services run but carry no application telemetry until instrumented.
 

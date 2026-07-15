@@ -303,10 +303,19 @@ class Pipeline:
         an `agent_step` event per node so the UI can show live progress instead of
         freezing for the full 8-node run (Coordinator..Report can take several
         seconds once Neo4j/Qdrant/Gemini round-trips are involved)."""
+        # Learned operator feedback (capped, deterministic) — fetched once per
+        # incident and applied during the root-cause agent's scoring/re-ranking.
+        try:
+            feedback_boosts = await store.feedback_boost_map()
+        except Exception as exc:
+            self._app_log.warning(f"feedback_boost_map failed (non-fatal): {exc}")
+            feedback_boosts = {"node_kind": {}, "kind": {}}
+
         initial_state = {
             "focal_node":   node,
             "raw_events":   related,
             "history":      self.history,
+            "feedback_boosts": feedback_boosts,
             "metrics":      {},
             "logs":         [],
             "traces":       [],

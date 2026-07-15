@@ -1,4 +1,4 @@
-import type { Incident, IncidentSummary, Metrics, TopologyData, Explanation, Attribution } from "./types";
+import type { Incident, IncidentSummary, Metrics, TopologyData, Explanation, Attribution, Feedback, FeedbackIn } from "./types";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -55,6 +55,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ node: node ?? null }),
     }),
+  submitFeedback: (id: string, payload: FeedbackIn) =>
+    j<{ ok: boolean; feedback_id: string }>(`/api/incidents/${id}/feedback`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getFeedback: (id: string) =>
+    j<Feedback[]>(`/api/incidents/${id}/feedback`),
 };
 
 export const SEV_COLOR: Record<string, string> = {

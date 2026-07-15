@@ -760,6 +760,33 @@ Real system and application logs are exported through the OpenTelemetry Logs SDK
 
 ---
 
+### 18. Human-in-the-Loop RCA Feedback Loop
+
+**Modules**: `rca/scoring.py` (boost helpers), `db/store.py` (feedback ledger), `agents/nodes.py` (boost application), `rag/qdrant.py` (vector memory), `main.py` (API), `frontend/src/components/IncidentDetail.tsx` (UI)
+
+Operators can validate every ranked hypothesis directly from the dashboard with **👍 Correct RCA / 👎 Wrong RCA** buttons. This closes the loop between the AI's reasoning and human expertise: confirmed judgements deterministically (and safely) tune the ranking of *future* incidents on the same node, while every vote is preserved as an auditable, non-repudiable record.
+
+**How the loop works**:
+
+1. **Capture** — a vote posts to `POST /api/incidents/{id}/feedback` and is written to the `rca_feedback` table (PostgreSQL). Re-voting is flip-safe: a `UNIQUE(incident_id, hypothesis_rank, actor)` constraint means changing 👍→👎 *overwrites* the prior vote rather than double-counting it. The vote is also written to the incident **audit trail**.
+2. **Learn (deterministic, capped)** — before each new incident is built, `store.feedback_boost_map()` computes a net-vote score per `node|kind` (and a global per-`kind` fallback) via SQL aggregation over the raw rows — **no stored counters, no drift**. The net is converted to a capped score component: `boost = clamp(net_votes × k, −15, +15)`.
+3. **Apply & re-rank** — `rca/scoring.py::apply_feedback_boosts` adds the boost as a named, visible `feedback_learned_boost` score component (node-scoped first, global per-kind as fallback), then **re-sorts and re-ranks** the hypotheses so a confirmed cause can visibly rise to #1.
+4. **Remember (semantic)** — each vote is also embedded into a write-only Qdrant `vajra_feedback` collection as durable vector memory for future GraphRAG retrieval. This step is **fully non-fatal**: a Qdrant hiccup can never break feedback saving (PostgreSQL is the authoritative record).
+
+**Design principles**:
+
+| Principle | Implementation |
+|---|---|
+| **Deterministic, not AI-driven** | The confidence adjustment is pure SQL aggregation + a clamped formula — never derived from an LLM. |
+| **Capped self-learning** | Boost is hard-limited to ±15 of a 100-point scale, so feedback *nudges* ranking but can never overturn strong Confirmed evidence. |
+| **Scoped learning** | Feedback on a node/kind only influences similar incidents (node-scoped), falling back to a global per-kind average — unrelated incidents are not boosted. |
+| **Separation of concerns** | PostgreSQL drives the numeric confidence; Qdrant is semantic memory only and never participates in confidence calculation. |
+| **Auditable & safe** | Every vote is logged to the audit trail; confidence is floored at 0 and capped at 1; votes are idempotent. |
+
+**Verified end-to-end** against the running stack (real API surface): POST/GET persist and re-hydrate; a flipped vote leaves exactly one row (no double-count); the audit trail records each vote; the Qdrant ledger populates; and a recorded vote measurably changed a freshly-built incident's scoring (an `attack` hypothesis's boost swung `−5 → +10` and its confidence `0.550 → 0.700` after votes accumulated). Unit tests: `backend/tests/test_feedback.py`.
+
+---
+
 ## System Architecture
 
 ```mermaid
@@ -798,6 +825,7 @@ graph TD
         FastAPI["FastAPI + Socket.IO Server"]
         MinIO[(MinIO PDF Report Archive)]
         Dashboard["Next.js Operations Dashboard"]
+        Feedback["Human-in-the-Loop Feedback<br/>👍 Correct / 👎 Wrong RCA"]
     end
 
     UNSW & NSL & HDFS & Config --> Adapters
@@ -815,6 +843,12 @@ graph TD
     Agents --> FastAPI
     Agents --> MinIO
     FastAPI --> Dashboard
+
+    Dashboard --> Feedback
+    Feedback --> FastAPI
+    FastAPI --> Postgres
+    Postgres -. "learned boost (deterministic, capped ±15)" .-> Agents
+    Feedback -. "vector memory" .-> GraphRAG
 ```
 
 ### Data Flow
@@ -855,6 +889,7 @@ flowchart TD
         API["FastAPI REST & Socket.IO Websockets"]
         LLM["Gemini Narratives & Chat (On-Demand)"]
         UI["Next.js Operations Dashboard"]
+        Feedback["Human Feedback ✓/✗<br/>Correct / Wrong RCA"]
     end
 
     RawData --> Events
@@ -873,6 +908,12 @@ flowchart TD
     API --> UI
     API <--> LLM
     UI <--> LLM
+
+    UI --> Feedback
+    Feedback --> API
+    API --> DB
+    DB -. "deterministic capped boost" .-> Causal
+    Feedback -. "vector memory" .-> RAG
 ```
 
 ---
@@ -1328,6 +1369,8 @@ Without a key, the system is fully functional — explanations and chat use a de
 | `POST` | `/api/incidents/{id}/chat` | Grounded Q&A about the incident |
 | `POST` | `/api/incidents/{id}/report` | Generate PDF report and upload to MinIO |
 | `POST` | `/api/incidents/{id}/status` | Update status (open/investigating/mitigated/resolved) |
+| `POST` | `/api/incidents/{id}/feedback` | Record human-in-the-loop RCA feedback (👍 correct / 👎 wrong); flip-safe upsert |
+| `GET` | `/api/incidents/{id}/feedback` | List operator feedback recorded for this incident |
 
 ### Operations
 

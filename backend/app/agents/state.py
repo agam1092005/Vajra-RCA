@@ -13,6 +13,7 @@ class AgentState(TypedDict):
     focal_node: str
     raw_events: list[Event]
     history: list[dict[str, Any]]
+    feedback_boosts: dict[str, Any]
     
     # Agent collections
     metrics: dict[str, Any]

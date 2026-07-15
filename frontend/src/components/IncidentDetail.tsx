@@ -10,6 +10,8 @@ import {
   Send,
   Sparkles,
   Radius,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Attribution, Explanation, Hypothesis, Incident } from "@/lib/types";
@@ -44,8 +46,45 @@ function EvidenceColumn({
   );
 }
 
-function HypothesisCard({ h }: { h: Hypothesis }) {
+function HypothesisCard({
+  h,
+  incidentId,
+  savedVote,
+}: {
+  h: Hypothesis;
+  incidentId: string;
+  savedVote: boolean | null;
+}) {
   const top = h.rank === 1;
+  const [vote, setVote] = useState<boolean | null>(savedVote);
+  const [saving, setSaving] = useState(false);
+
+  // Saved votes load asynchronously (after this card may have mounted) — adopt
+  // the persisted vote once it arrives.
+  useEffect(() => {
+    setVote(savedVote);
+  }, [savedVote]);
+
+  const sendVote = async (isCorrect: boolean) => {
+    const next = vote === isCorrect ? null : isCorrect; // toggle off if re-clicked
+    if (next === null) return; // keep it simple: a vote can be flipped, not cleared
+    setSaving(true);
+    setVote(isCorrect); // optimistic
+    try {
+      await api.submitFeedback(incidentId, {
+        hypothesis_rank: h.rank,
+        hypothesis_kind: h.kind,
+        root_cause: h.root_cause,
+        is_correct: isCorrect,
+      });
+    } catch (err) {
+      console.error("Feedback submit failed", err);
+      setVote(savedVote); // revert on failure
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div
       className={`rounded-xl border p-4 ${top ? "border-[var(--accent-2)] bg-[var(--panel-2)]" : "border-[var(--border)] bg-[var(--panel)]"}`}
@@ -67,7 +106,10 @@ function HypothesisCard({ h }: { h: Hypothesis }) {
       <div className="mb-3 flex flex-wrap gap-1.5">
         {Object.entries(h.score_breakdown).map(([k, v]) => (
           <span key={k} className="mono rounded bg-[var(--bg)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">
-            {k.replace(/_/g, " ")} <span className="text-[var(--accent)]">+{v}</span>
+            {k.replace(/_/g, " ")}{" "}
+            <span className={v >= 0 ? "text-[var(--accent)]" : "text-red-400"}>
+              {v >= 0 ? "+" : ""}{v}
+            </span>
           </span>
         ))}
       </div>
@@ -152,6 +194,40 @@ function HypothesisCard({ h }: { h: Hypothesis }) {
           </ul>
         </div>
       )}
+      <div className="mt-3 flex items-center gap-2 border-t border-[var(--border)] pt-2.5">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+          Was this RCA correct?
+        </span>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => sendVote(true)}
+          className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold transition disabled:opacity-50 ${
+            vote === true
+              ? "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--accent)]"
+              : "border-[var(--border)] text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+          }`}
+        >
+          <ThumbsUp size={13} /> Correct RCA
+        </button>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => sendVote(false)}
+          className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold transition disabled:opacity-50 ${
+            vote === false
+              ? "border-red-400 bg-red-400/15 text-red-400"
+              : "border-[var(--border)] text-[var(--muted)] hover:border-red-400 hover:text-red-400"
+          }`}
+        >
+          <ThumbsDown size={13} /> Wrong RCA
+        </button>
+        {vote !== null && (
+          <span className="text-[10px] text-[var(--muted)]">
+            Recorded — will tune future ranking on this node.
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -168,6 +244,7 @@ export function IncidentDetail({ id, liveBusinessImpact }: { id: string; liveBus
   const [loadingSimilar, setLoadingSimilar] = useState(false);
   const [attr, setAttr] = useState<Attribution | null>(null);
   const [loadingAttr, setLoadingAttr] = useState(false);
+  const [feedbackByRank, setFeedbackByRank] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     setInc(null);
@@ -175,6 +252,14 @@ export function IncidentDetail({ id, liveBusinessImpact }: { id: string; liveBus
     setChat([]);
     setSimilar(null);
     setAttr(null);
+    setFeedbackByRank({});
+    api.getFeedback(id)
+      .then((rows) =>
+        setFeedbackByRank(
+          Object.fromEntries(rows.map((f) => [f.hypothesis_rank, f.is_correct]))
+        )
+      )
+      .catch(console.error);
     api.incident(id).then((d) => {
       setInc(d);
       setExpl(d.explanation ?? null);
@@ -543,7 +628,12 @@ export function IncidentDetail({ id, liveBusinessImpact }: { id: string; liveBus
           </div>
           <div className="space-y-3">
             {inc.hypotheses.map((h) => (
-              <HypothesisCard key={h.rank} h={h} />
+              <HypothesisCard
+                key={h.rank}
+                h={h}
+                incidentId={id}
+                savedVote={h.rank in feedbackByRank ? feedbackByRank[h.rank] : null}
+              />
             ))}
           </div>
         </div>

@@ -126,6 +126,25 @@ export interface AgentStep {
   ts: number;
 }
 
+export interface Feedback {
+  feedback_id: string;
+  incident_id: string;
+  focal_node: string;
+  hypothesis_rank: number;
+  hypothesis_kind: string;
+  root_cause: string;
+  is_correct: boolean;
+  actor: string;
+  ts: number;
+}
+
+export interface FeedbackIn {
+  hypothesis_rank: number;
+  hypothesis_kind: string;
+  root_cause: string;
+  is_correct: boolean;
+}
+
 export interface TopologyData {
   nodes: { id: string; role: string; flows: number }[];
   edges: { source: string; target: string; flows: number; attack_flows: number; service: string }[];

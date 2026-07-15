@@ -15,6 +15,7 @@ from ..rag.graphrag import graphrag          # GraphRAG = Qdrant + Neo4j
 from ..db.store import store
 from ..llm import gemini
 from ..rca.engine import RCAEngine
+from ..rca.scoring import apply_feedback_boosts
 
 
 # Module-level topology singleton — one Neo4j connection shared across all agent calls.
@@ -178,6 +179,13 @@ def root_cause_node(state: AgentState) -> dict[str, Any]:
                     if matching:
                         h["score_breakdown"]["historical_pattern_match"] = 10
                         h["confidence"] = min(1.0, h["confidence"] + 0.1)
+
+            # Feedback learning loop: apply the operator's confirmed/rejected past
+            # judgements (capped ±15) then re-sort + re-rank so a boosted hypothesis
+            # visibly rises to #1. Node-scoped feedback wins, global per-kind is the
+            # fallback (see rca.scoring.apply_feedback_boosts).
+            hypotheses = apply_feedback_boosts(
+                hypotheses, state["focal_node"], state.get("feedback_boosts") or {})
 
             current.set_attribute("hypothesis_count", len(hypotheses))
             return {"hypotheses": hypotheses}

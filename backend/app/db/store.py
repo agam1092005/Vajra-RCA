@@ -14,6 +14,26 @@ from typing import Any
 from ..core.config import settings
 
 
+def aggregate_feedback_rows(rows: list[dict]) -> dict:
+    """Reduce raw rca_feedback rows into a net-vote boost map.
+
+    net = Σ(is_correct ? +1 : -1) grouped by node+kind and, separately, by kind.
+    Because the table has UNIQUE(incident_id, hypothesis_rank, actor), a flipped
+    vote is a single overwritten row — this SUM cannot double-count it.
+
+    Returns: {"node_kind": {"<node>|<kind>": net}, "kind": {"<kind>": net}}
+    """
+    node_kind: dict[str, int] = {}
+    by_kind: dict[str, int] = {}
+    for r in rows:
+        delta = 1 if r["is_correct"] else -1
+        kind = r["hypothesis_kind"]
+        node = r.get("focal_node") or ""
+        node_kind[f"{node}|{kind}"] = node_kind.get(f"{node}|{kind}", 0) + delta
+        by_kind[kind] = by_kind.get(kind, 0) + delta
+    return {"node_kind": node_kind, "kind": by_kind}
+
+
 class Store:
     def __init__(self) -> None:
         self.pool: asyncpg.Pool | None = None
@@ -58,6 +78,19 @@ class Store:
                 detail TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_incidents_detected ON incidents(detected_at DESC);
+            CREATE TABLE IF NOT EXISTS rca_feedback (
+                feedback_id     VARCHAR(50) PRIMARY KEY,
+                incident_id     VARCHAR(50) NOT NULL,
+                focal_node      VARCHAR(50),
+                hypothesis_rank INTEGER NOT NULL,
+                hypothesis_kind VARCHAR(40) NOT NULL,
+                root_cause      TEXT,
+                is_correct      BOOLEAN NOT NULL,
+                actor           VARCHAR(50) NOT NULL,
+                ts              DOUBLE PRECISION NOT NULL,
+                UNIQUE (incident_id, hypothesis_rank, actor)
+            );
+            CREATE INDEX IF NOT EXISTS idx_feedback_kind ON rca_feedback(hypothesis_kind);
             """)
 
     async def save_incident(self, incident: dict) -> None:
@@ -116,6 +149,56 @@ class Store:
                 await conn.execute("UPDATE incidents SET status=$1, data=$2 WHERE incident_id=$3",
                                    status, json.dumps(inc), incident_id)
         await self.audit(incident_id, actor, "status_change", status)
+
+    # ---------- feedback learning loop ----------
+    async def save_feedback(self, entry: dict) -> None:
+        """Upsert an operator's Correct/Wrong judgement on a hypothesis.
+
+        UNIQUE(incident_id, hypothesis_rank, actor) means a re-vote (a "flip")
+        overwrites the prior row rather than appending — so the net-vote math in
+        feedback_boost_map() never double-counts.
+        """
+        if self.pool is None:
+            raise RuntimeError("PostgreSQL store is not initialized")
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO rca_feedback
+                   (feedback_id, incident_id, focal_node, hypothesis_rank,
+                    hypothesis_kind, root_cause, is_correct, actor, ts)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                   ON CONFLICT (incident_id, hypothesis_rank, actor) DO UPDATE SET
+                   is_correct=EXCLUDED.is_correct,
+                   hypothesis_kind=EXCLUDED.hypothesis_kind,
+                   root_cause=EXCLUDED.root_cause,
+                   focal_node=EXCLUDED.focal_node,
+                   ts=EXCLUDED.ts""",
+                entry["feedback_id"], entry["incident_id"], entry.get("focal_node"),
+                entry["hypothesis_rank"], entry["hypothesis_kind"], entry.get("root_cause", ""),
+                entry["is_correct"], entry["actor"], entry["ts"],
+            )
+
+    async def list_feedback(self, incident_id: str) -> list[dict]:
+        if self.pool is None:
+            return []
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT feedback_id, incident_id, focal_node, hypothesis_rank, "
+                "hypothesis_kind, root_cause, is_correct, actor, ts "
+                "FROM rca_feedback WHERE incident_id=$1 ORDER BY hypothesis_rank",
+                incident_id,
+            )
+        return [dict(r) for r in rows]
+
+    async def feedback_boost_map(self) -> dict:
+        """Net-vote boost map across all feedback, grouped by node+kind and by kind.
+        See aggregate_feedback_rows for the (flip-safe) reduction."""
+        if self.pool is None:
+            return {"node_kind": {}, "kind": {}}
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT focal_node, hypothesis_kind, is_correct FROM rca_feedback"
+            )
+        return aggregate_feedback_rows([dict(r) for r in rows])
 
     async def update_incident_field(self, incident_id: str, key: str, value: Any) -> None:
         inc = await self.get_incident(incident_id)

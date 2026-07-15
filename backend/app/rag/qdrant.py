@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import uuid
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
@@ -18,6 +19,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct
 from ..core.config import settings
 
 COLLECTION_NAME = "vajra_sop"
+FEEDBACK_COLLECTION = "vajra_feedback"  # operator RCA judgements (vector memory)
 VECTOR_SIZE = 768  # text-embedding-004 dimension
 
 
@@ -228,6 +230,48 @@ class RAGClient:
         except Exception as e:
             print(f"[Qdrant] Search failed: {e}. Using keyword fallback.")
             return self._keyword_fallback(query, limit)
+
+    def index_feedback(self, entry: dict) -> bool:
+        """Embed an operator's RCA judgement into a durable Qdrant 'vector memory'
+        collection. Write-only for now — a growing ledger of confirmed/rejected
+        root causes for future similarity retrieval.
+
+        Deliberately best-effort and NON-FATAL: every failure is swallowed and
+        returns False, so a Qdrant hiccup can never break feedback saving (the
+        authoritative record lives in Postgres). Uses the same stable local
+        embedding as the SOP index — never a live LLM call.
+        """
+        if not self.client:
+            return False
+        try:
+            self.client.get_collection(FEEDBACK_COLLECTION)
+        except Exception:
+            try:
+                self.client.create_collection(
+                    collection_name=FEEDBACK_COLLECTION,
+                    vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+                )
+            except Exception as e:
+                print(f"[Qdrant] feedback collection create failed (non-fatal): {e}")
+                return False
+        try:
+            text = (
+                f"{entry.get('focal_node','')} {entry.get('hypothesis_kind','')} "
+                f"{entry.get('root_cause','')} "
+                f"{'correct' if entry.get('is_correct') else 'wrong'}"
+            )
+            self.client.upsert(
+                collection_name=FEEDBACK_COLLECTION,
+                points=[PointStruct(
+                    id=uuid.uuid4().int >> 64,  # 64-bit unsigned id Qdrant accepts
+                    vector=self._get_embedding(text),
+                    payload=entry,
+                )],
+            )
+            return True
+        except Exception as e:
+            print(f"[Qdrant] index_feedback failed (non-fatal): {e}")
+            return False
 
     def _keyword_fallback(self, query: str, limit: int) -> list[dict]:
         """Simple keyword overlap fallback when Qdrant is unreachable.

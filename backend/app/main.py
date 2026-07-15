@@ -235,6 +235,56 @@ async def audit(limit: int = 200) -> list[dict]:
     return to_jsonable(await store.audit_trail(limit=limit))
 
 
+class FeedbackIn(BaseModel):
+    hypothesis_rank: int
+    hypothesis_kind: str
+    root_cause: str = ""
+    is_correct: bool
+    actor: str = "operator"
+
+
+@api.post("/api/incidents/{incident_id}/feedback")
+async def save_feedback(incident_id: str, body: FeedbackIn) -> dict:
+    """Record an operator's Correct/Wrong judgement on a ranked hypothesis.
+
+    Postgres is the authoritative, capped, deterministic driver of future scoring;
+    Qdrant indexing is a best-effort vector-memory ledger (never blocks the save).
+    """
+    import time
+    import uuid
+
+    inc = await store.get_incident(incident_id)
+    if not inc:
+        raise HTTPException(404, "incident not found")
+
+    entry = {
+        "feedback_id": uuid.uuid4().hex[:12],
+        "incident_id": incident_id,
+        "focal_node": inc.get("focal_node"),
+        "hypothesis_rank": body.hypothesis_rank,
+        "hypothesis_kind": body.hypothesis_kind,
+        "root_cause": body.root_cause,
+        "is_correct": body.is_correct,
+        "actor": body.actor,
+        "ts": time.time(),
+    }
+    await store.save_feedback(entry)
+    await store.audit(
+        incident_id, body.actor, "feedback",
+        f"{'correct' if body.is_correct else 'wrong'} RCA #{body.hypothesis_rank} "
+        f"({body.hypothesis_kind})",
+    )
+    # Non-fatal vector-memory ledger — a Qdrant hiccup must not fail the save.
+    from .rag.qdrant import rag
+    await asyncio.to_thread(rag.index_feedback, entry)
+    return {"ok": True, "feedback_id": entry["feedback_id"]}
+
+
+@api.get("/api/incidents/{incident_id}/feedback")
+async def get_feedback(incident_id: str) -> list[dict]:
+    return to_jsonable(await store.list_feedback(incident_id))
+
+
 @api.get("/api/incidents/{incident_id}/similar")
 async def incident_similar(incident_id: str) -> list[dict]:
     """GraphRAG: topology-aware similar SOPs / runbooks for this incident."""

@@ -63,6 +63,10 @@ class Pipeline:
         self.hdfs_rate = 5.0         # HDFS log events/sec
         self.window_seconds = settings.correlation_window_s
         self.incident_cooldown = 12.0
+        # Max distinct-node incidents raised in one detection tick. Lets a genuinely
+        # concurrent, multi-node event surface every affected node instead of only the
+        # strongest, while capping so an anomaly storm can't stall the replay loop.
+        self.max_incidents_per_tick = 3
         self.open_incidents_count = 0
         self._app_log = app_logger()
         self._sys_log = system_logger()
@@ -275,16 +279,34 @@ class Pipeline:
         if force_node:
             candidates = [(force_node, [e for e in events if e.node == force_node
                                         and e.event_type in (EventType.ANOMALY, EventType.SECURITY_ALERT)])] + candidates
+        # Fix C: collapse concurrent candidates that share a direct upstream dependency
+        # onto one focal (the shared parent) so a single fan-out cause raises a single
+        # incident with its dependents recorded as the blast radius — instead of N
+        # separate incidents. Degrades to one standalone cluster per candidate when Neo4j
+        # is unavailable, preserving Fix A's per-candidate behavior.
+        clusters = self.rca.cluster_candidates(candidates)
         now = time.time()
-        for node, _ in candidates:
+        # Fix A: raise up to a per-tick cap of clusters (not just the strongest), so
+        # genuinely concurrent incidents all surface. The forced (API demo) path keeps its
+        # single-incident contract via cap=1.
+        cap = 1 if force_node else self.max_incidents_per_tick
+        raised: list[dict] = []
+        for cluster in clusters:
+            if len(raised) >= cap:
+                break
+            node = cluster.focal
             if not force_node and now - self._recent_incident_at.get(node, 0) < self.incident_cooldown:
                 continue
-            related = [e for e in events if e.node == node
+            group = set(cluster.downstream) | {node}
+            related = [e for e in events if e.node in group
                        or e.event_type == EventType.CONFIG_CHANGE
                        or node in self.topology.upstream_dependencies(e.node)]
 
-            incident_dict = await self._run_agents(node, related)
-            self._recent_incident_at[node] = now
+            incident_dict = await self._run_agents(node, related, downstream_nodes=cluster.downstream)
+            # Cool down the focal AND every folded dependent so they don't separately
+            # re-fire as standalone incidents on the next tick.
+            for n in group:
+                self._recent_incident_at[n] = now
             await store.save_incident(incident_dict)
             self.open_incidents_count += 1
             self.history.append(incident_dict)
@@ -293,16 +315,21 @@ class Pipeline:
             self._app_log.warning(
                 f"Incident raised on {node}: {incident_dict.get('title')} "
                 f"(severity={incident_dict.get('severity')}, "
-                f"hypotheses={len(incident_dict.get('hypotheses', []))})"
+                f"hypotheses={len(incident_dict.get('hypotheses', []))}, "
+                f"blast_radius={len(cluster.downstream)})"
             )
-            return incident_dict
-        return None
+            raised.append(incident_dict)
+        return raised[0] if raised else None
 
-    async def _run_agents(self, node: str, related: list[Event]) -> dict:
+    async def _run_agents(self, node: str, related: list[Event],
+                          downstream_nodes: list[str] | None = None) -> dict:
         """Execute the LangGraph multi-agent pipeline in a worker thread, streaming
         an `agent_step` event per node so the UI can show live progress instead of
         freezing for the full 8-node run (Coordinator..Report can take several
-        seconds once Neo4j/Qdrant/Gemini round-trips are involved)."""
+        seconds once Neo4j/Qdrant/Gemini round-trips are involved).
+
+        `downstream_nodes` carries the topology-merge blast radius so the root-cause agent
+        can raise the CORRELATED shared-dependency hypothesis for the elected focal."""
         # Learned operator feedback (capped, deterministic) — fetched once per
         # incident and applied during the root-cause agent's scoring/re-ranking.
         try:
@@ -314,6 +341,7 @@ class Pipeline:
         initial_state = {
             "focal_node":   node,
             "raw_events":   related,
+            "downstream_nodes": downstream_nodes or [],
             "history":      self.history,
             "feedback_boosts": feedback_boosts,
             "metrics":      {},

@@ -479,6 +479,24 @@ A live, Neo4j-backed directed graph where edge `src → dst` means "src was obse
 
 The intellectual core of Vajra RCA. Turns a window of correlated real events around an affected node into ranked, evidence-backed root-cause hypotheses. **Causation vs correlation** is decided from temporal ordering, the real dependency graph, config-change timing, and independent corroboration.
 
+#### Model Logic: Rule-Based Expert System (not Bayesian, not a pretrained model)
+
+The causal engine is a **deterministic, additive weighted-evidence scorecard over the real topology DAG, gated by temporal precedence** — a rule-based expert system. Each hypothesis accrues named integer points (hand-set constants in `rca/scoring.py`), and confidence is simply `clamp(0, 100, Σ components) / 100`. There are **no priors, posteriors, CPTs, or learned weights**.
+
+Two design decisions to be explicit about:
+
+- **Not Bayesian.** A full Bayesian causal-inference engine (DoWhy / CausalNex, structural causal models estimating `do(X)` effects) was **deliberately not built** — see [`causal_inference_and_feedback_design.md`](causal_inference_and_feedback_design.md) §1–2. In a live replay the per-node event stream is sparse and bursty, so there is rarely enough observational data to fit reliable conditional-probability tables or a refutable estimand; a thinly-fit SCM would emit confident-looking probabilities with unjustified error bars. The rule-based scorecard is instead **fully auditable** — every point is traceable to a named piece of evidence shown in the UI.
+- **Not a pretrained model for the causal decision.** Pretrained/ML models exist in the system but do **detection and narration, never causal adjudication**:
+
+| Component | Type | Job |
+|---|---|---|
+| Isolation Forest, Kitsune autoencoder, Vajra classifiers | pretrained / online ML | **detection** — is this flow anomalous? |
+| Gemini 2.5 Pro (`llm/gemini.py`) | pretrained LLM | **narration** of an already-decided incident — it does *not* pick the root cause |
+| **RCA causal ranking (`rca/engine.py`, `rca/scoring.py`)** | **rule-based scorecard** | **causation** — ranks root-cause hypotheses |
+| Operator feedback | deterministic ±15 nudge | re-ranks only; capped so it can never overturn confirmed evidence |
+
+The three rules that encode causation (not mere correlation): **temporal ordering** (cause must precede effect — `cfg.timestamp <= first_anomaly_ts`), **dependency-path support** (points granted only when a real topology edge exists — the rule-based stand-in for back-door blocking), and a **causal time window** (config change within 5s and preceding earns full credit, half credit if preceding but outside the window).
+
 #### Hypothesis Types Generated
 
 | Hypothesis Kind | Trigger | Key Evidence |
@@ -486,6 +504,7 @@ The intellectual core of Vajra RCA. Turns a window of correlated real events aro
 | **Configuration Change** | A config commit on/upstream of the affected node precedes the anomaly | Real git diff, dependency path, temporal proximity (5s causal window) |
 | **External Attack** | Security alert signatures targeting the node | Attack category, source IP attribution, multi-vector patterns |
 | **Upstream Dependency Failure** | Anomaly on an upstream node precedes the downstream anomaly | Dependency path, temporal ordering, propagation pattern |
+| **Shared Upstream Dependency** | ≥2 dependents fail in the same window sharing a common direct upstream (see [Concurrent multi-anomaly handling](#concurrent-multi-anomaly-handling)) | Dependency paths from each dependent; labeled **CORRELATED** (inferred from fan-out, never confirmed) |
 | **Behavioral Anomaly** | Unsupervised detector flags + MITRE signature match | Feature attribution (z-scores), behavioral signature, volumetric pattern |
 
 #### Decomposable Causal Scoring (`rca/scoring.py`)
@@ -512,6 +531,16 @@ Every hypothesis carries three evidence buckets:
 - **Confirmed** — Direct, verifiable proof (e.g., a config commit diff, a matching attack signature, a dependency path)
 - **Correlated** — Same-window signals not proven causal (e.g., concurrent attack traffic under a config-change hypothesis)
 - **Missing** — Data that would confirm/reject the hypothesis but is unavailable (e.g., packet-drop telemetry for the window)
+
+#### Concurrent Multi-Anomaly Handling
+
+Real outages rarely arrive one at a time — a burst can cross the anomaly threshold on many nodes inside the same correlation window, sometimes in the same millisecond. The detection tick (`pipeline._maybe_incident` → `rca/engine.py`) handles this in three deterministic stages:
+
+1. **Deterministic sub-millisecond ordering.** Events are sorted by `(timestamp, ingested_at)`, where `ingested_at` is a monotonic tiebreaker. Two events sharing an identical timestamp keep a reproducible order, so the causal *"cause precedes effect"* scoring can never be flipped by an arbitrary sort.
+2. **Every concurrent candidate surfaces.** Instead of raising only the single strongest node per tick, up to `max_incidents_per_tick` (default 3) distinct incidents are raised, so a genuinely multi-node event is not silently dropped. The cap keeps an anomaly storm from stalling the replay loop.
+3. **Topology-aware merge (blast-radius deduplication).** Before raising, `RCAEngine.cluster_candidates()` collapses candidates that share a **direct upstream dependency** onto a single focal — the shared parent — using a *1-hop lowest-common-ancestor* rule. One fan-out cause becomes **one** incident whose dependents are recorded as its blast radius, instead of N separate incidents.
+
+**Example:** if a shared database degrades, `orders` and `api-gateway` both cross the threshold. Rather than two disjoint incidents, the system raises **one** incident centered on the database (their common upstream), with `orders` and `api-gateway` as the blast radius. Because the database itself may show no direct signal, its hypothesis is honestly labeled **CORRELATED** (inferred from *"N downstream dependents failed simultaneously"*), never CONFIRMED. The 1-hop rule is structurally immune to *hub collapse* — a far-upstream core node can only be elected if a candidate depends on it directly. When Neo4j is unavailable, clustering degrades safely to one standalone incident per candidate. Design: [`docs/superpowers/specs/2026-07-15-topology-merge-blast-radius-design.md`](docs/superpowers/specs/2026-07-15-topology-merge-blast-radius-design.md).
 
 #### Risk-Tiered Remediation Recommendations
 
@@ -1523,10 +1552,8 @@ python scripts/verify_e2e.py
 | Done | OpenTelemetry SDK instrumentation for the backend (real spans, in-process ring buffer + OTLP export) |
 | Done | Prometheus `/metrics` endpoint (Prometheus-format, real pipeline/detector/business state) |
 | Done | Elasticsearch log indexing from OTel Collector (real HDFS system logs + application logs, verified end-to-end) |
-| Planned | Grafana dashboard auto-provisioning with live backend metrics |
-| Planned | Wire a `traces` pipeline into `infra/otel-collector.yaml` (receiver already accepts OTLP spans on 4317/4318; no pipeline routes them yet — out of scope for this pass, see [OpenTelemetry SDK Instrumentation](#opentelemetry-sdk-instrumentation)) |
 
-> **Note**: The OTel Collector's `service.pipelines` still has no `traces` entry (its `otlp` receiver accepts spans on 4317/4318 but nothing routes them anywhere), so collector-side trace storage remains **Planned**. Grafana panels for the new Prometheus metrics are not yet provisioned (also **Planned**) — the metrics themselves are live and queryable today. **Traces are no longer simulated**: real OpenTelemetry spans for every ingestion/detection/topology/RCA/agent operation — see [OpenTelemetry SDK Instrumentation](#15-opentelemetry-sdk-instrumentation). **Metrics are no longer missing**: the `vajra-backend` Prometheus scrape target (previously 404ing) now returns real counters/gauges — see [Prometheus /metrics Endpoint](#16-prometheus-metrics-endpoint). **Logs are no longer unindexed**: real HDFS system logs and backend application logs now flow through the OTel Collector into Elasticsearch's `otel-logs` index — see [Elasticsearch Log Indexing](#17-elasticsearch-log-indexing-via-otel-collector).
+> **Note**: **Traces are no longer simulated**: real OpenTelemetry spans for every ingestion/detection/topology/RCA/agent operation — see [OpenTelemetry SDK Instrumentation](#15-opentelemetry-sdk-instrumentation). **Metrics are no longer missing**: the `vajra-backend` Prometheus scrape target (previously 404ing) now returns real counters/gauges — see [Prometheus /metrics Endpoint](#16-prometheus-metrics-endpoint). **Logs are no longer unindexed**: real HDFS system logs and backend application logs now flow through the OTel Collector into Elasticsearch's `otel-logs` index — see [Elasticsearch Log Indexing](#17-elasticsearch-log-indexing-via-otel-collector).
 
 ---
 

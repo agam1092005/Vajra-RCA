@@ -12,6 +12,9 @@ class AgentState(TypedDict):
     # Context
     focal_node: str
     raw_events: list[Event]
+    # Downstream dependents folded onto this focal by the topology merge (blast radius).
+    # Empty for a standalone incident; drives the CORRELATED shared-dependency hypothesis.
+    downstream_nodes: list[str]
     history: list[dict[str, Any]]
     feedback_boosts: dict[str, Any]
     

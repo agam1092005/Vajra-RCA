@@ -64,6 +64,20 @@ class Incident:
         return asdict(self)
 
 
+@dataclass
+class CandidateCluster:
+    """A group of concurrent candidate nodes collapsed onto one shared upstream focal.
+
+    `downstream` is the list of affected dependents (the blast radius); it is empty for a
+    standalone candidate (focal == itself). `focal_has_signals` is True when the focal node
+    itself crossed the anomaly threshold (so a CONFIRMED hypothesis is reachable), False
+    when the focal was elected purely from its dependents' fan-out (CORRELATED only).
+    """
+    focal: str
+    downstream: list[str] = field(default_factory=list)
+    focal_has_signals: bool = False
+
+
 def _ev_item(kind: EvidenceKind, text: str, source: str = "", component: str = "") -> dict:
     return asdict(EvidenceItem(kind=kind, text=text, source=source, weight_component=component))
 
@@ -88,19 +102,98 @@ class RCAEngine:
         candidates.sort(key=lambda c: (len(c[1]), max(_SEV_ORDER[s.severity] for s in c[1])), reverse=True)
         return candidates
 
+    # ---------- topology-aware merge (blast-radius dedup) ----------
+    def cluster_candidates(self, candidates: list[tuple[str, list[Event]]]) -> list[CandidateCluster]:
+        """Collapse concurrent candidate nodes that share a *direct* upstream dependency
+        onto a single focal (the shared parent), so one fan-out cause raises one incident.
+
+        Approach 1 — direct-parent, lowest common ancestor (1 hop only): we look one hop up
+        from each candidate via ``upstream_dependencies``. Because we never walk deeper, a
+        far-upstream hub can only be elected if a candidate depends on it directly, which
+        makes this structurally immune to hub collapse. If Neo4j is unavailable, every
+        parent set is empty and this returns one standalone cluster per candidate —
+        identical to the pre-merge behavior.
+        """
+        with tracing.span("rca.cluster_candidates", candidate_count=len(candidates)) as current:
+            cand_nodes = [node for node, _ in candidates]
+            cand_set = set(cand_nodes)
+            signal_count = {node: len(sigs) for node, sigs in candidates}
+            max_sev = {node: max((_SEV_ORDER[s.severity] for s in sigs), default=0)
+                       for node, sigs in candidates}
+
+            # Direct parents of each candidate, and the inverse map parent -> {candidates}.
+            parents_of: dict[str, set[str]] = {}
+            by_parent: dict[str, set[str]] = defaultdict(set)
+            for node in cand_nodes:
+                parents = set(self.topology.upstream_dependencies(node))
+                parents_of[node] = parents
+                for p in parents:
+                    by_parent[p].add(node)
+
+            # An elected focal is a parent shared by >= 2 candidates.
+            elected = {p: deps for p, deps in by_parent.items() if len(deps) >= 2}
+
+            # Lowest-common-ancestor tie-break: if two elected parents are themselves in a
+            # dependency relation (p_low depends on p_high), drop the higher one so we keep
+            # the most specific shared parent.
+            for p_low in list(elected):
+                for p_high in list(elected):
+                    if p_low != p_high and p_high in self.topology.upstream_dependencies(p_low):
+                        elected.pop(p_high, None)
+
+            # Greedy assignment: strongest elected focals first (by group size, then the
+            # strongest dependent), each downstream candidate joins exactly one cluster.
+            ordered = sorted(
+                elected.items(),
+                key=lambda kv: (len(kv[1]), max(max_sev.get(d, 0) for d in kv[1])),
+                reverse=True,
+            )
+            clusters: list[CandidateCluster] = []
+            claimed: set[str] = set()
+            for focal, deps in ordered:
+                group = sorted(deps - claimed)
+                if len(group) < 2:
+                    continue  # peers got claimed by a stronger cluster; not a merge anymore
+                claimed.update(group)
+                claimed.add(focal)  # if the focal is itself a candidate, don't also emit it standalone
+                clusters.append(CandidateCluster(
+                    focal=focal, downstream=group, focal_has_signals=focal in cand_set,
+                ))
+
+            # Any candidate not folded into a cluster stays standalone (focal == itself).
+            for node in cand_nodes:
+                if node not in claimed:
+                    clusters.append(CandidateCluster(focal=node, downstream=[], focal_has_signals=True))
+
+            # Order clusters strongest-first so the per-tick cap keeps the top incidents.
+            def _strength(c: CandidateCluster) -> tuple[int, int]:
+                nodes = [c.focal] + c.downstream
+                return (max((max_sev.get(n, 0) for n in nodes), default=0),
+                        sum(signal_count.get(n, 0) for n in nodes))
+            clusters.sort(key=_strength, reverse=True)
+            current.set_attribute("cluster_count", len(clusters))
+            current.set_attribute("merged_clusters", sum(1 for c in clusters if c.downstream))
+            return clusters
+
     # ---------- incident construction ----------
     def build_incident(self, focal_node: str, window_events: list[Event],
-                       history: list[dict] | None = None) -> Incident:
+                       history: list[dict] | None = None,
+                       downstream_nodes: list[str] | None = None) -> Incident:
         with tracing.span("rca.build_incident", focal_node=focal_node, event_count=len(window_events)) as current:
-            incident = self._build_incident_impl(focal_node, window_events, history)
+            incident = self._build_incident_impl(focal_node, window_events, history, downstream_nodes)
             current.set_attribute("hypothesis_count", len(incident.hypotheses))
             current.set_attribute("severity", incident.severity)
             return incident
 
     def _build_incident_impl(self, focal_node: str, window_events: list[Event],
-                              history: list[dict] | None = None) -> Incident:
+                              history: list[dict] | None = None,
+                              downstream_nodes: list[str] | None = None) -> Incident:
         history = history or []
-        window_events = sorted(window_events, key=lambda e: e.timestamp)
+        # Sort by (timestamp, ingested_at): ingested_at is a monotonic tiebreaker so
+        # events sharing an identical millisecond timestamp keep a deterministic order.
+        # The causal scoring relies on temporal precedence, so a stable tie-break here
+        # keeps "cause precedes effect" reproducible instead of arbitrary.
+        window_events = sorted(window_events, key=lambda e: (e.timestamp, e.ingested_at))
         anomalies = [e for e in window_events if e.event_type == EventType.ANOMALY and e.node == focal_node]
         alerts = [e for e in window_events if e.event_type == EventType.SECURITY_ALERT and e.node == focal_node]
         configs = [e for e in window_events if e.event_type == EventType.CONFIG_CHANGE]
@@ -122,6 +215,13 @@ class RCAEngine:
         h_load = self._behavioral_hypothesis(focal_node, anomalies, alerts)
         if h_load:
             hypotheses.append(h_load)
+        # Topology-merge focal: dependents that failed simultaneously under this shared
+        # upstream. Added as a CORRELATED (inferred) hypothesis alongside any direct ones.
+        downstream_nodes = downstream_nodes or []
+        if downstream_nodes:
+            h_shared = self._shared_dependency_hypothesis(focal_node, downstream_nodes, history)
+            if h_shared:
+                hypotheses.append(h_shared)
 
         # rank
         hypotheses.sort(key=lambda h: h.confidence, reverse=True)
@@ -130,6 +230,12 @@ class RCAEngine:
 
         severity = self._severity(primary_signals)
         br = self.topology.blast_radius(focal_node)
+        # Fold the observed downstream dependents into the blast radius so the merged
+        # incident names exactly which nodes this fan-out affected.
+        if downstream_nodes:
+            impacted = sorted(set(br.get("impacted", [])) | set(downstream_nodes))
+            br = {**br, "impacted": impacted, "count": len(impacted),
+                  "observed_dependents": sorted(downstream_nodes)}
         title = self._title(focal_node, hypotheses)
         summary = self._summary(focal_node, hypotheses, first_anomaly_ts, br)
         business_impact = self._calculate_business_impact(focal_node, hypotheses, br, window_events)
@@ -455,6 +561,45 @@ class RCAEngine:
             confirmed_evidence=confirmed, correlated_signals=correlated,
             missing_evidence=missing, recommendations=recs)
 
+    def _shared_dependency_hypothesis(self, focal, downstream_nodes, history):
+        """Hypothesis for a focal elected as the common upstream of several failing
+        dependents — even when the focal shows no signal of its own. Deliberately capped in
+        the CORRELATED tier: the cause is *inferred from fan-out*, not directly observed, so
+        it never earns a `confirmed_match`. Honest labeling per the design decision record.
+        """
+        if len(downstream_nodes) < 2:
+            return None
+        sb = ScoreBreakdown()
+        sb.add("direct_upstream_dependency", W_DIRECT_UPSTREAM_DEP)
+        # One corroborating point per affected dependent (their simultaneous failure is the
+        # only evidence), so more dependents => higher — but still correlated, never confirmed.
+        for _ in downstream_nodes:
+            sb.add("independent_corroboration", W_INDEPENDENT_SIGNAL)
+        dep_list = ", ".join(downstream_nodes)
+        correlated = [_ev_item(EvidenceKind.CORRELATED,
+            f"{len(downstream_nodes)} downstream dependents ({dep_list}) crossed the anomaly "
+            f"threshold within the same window; {focal} is their common upstream dependency.",
+            source="topology", component="direct_upstream_dependency")]
+        for dn in downstream_nodes:
+            path = self.topology.dependency_path(dn, focal)
+            if path:
+                correlated.append(_ev_item(EvidenceKind.CORRELATED,
+                    f"Dependency path {dn} -> {focal}: {' -> '.join(path)}.", source="topology"))
+        missing = [_ev_item(EvidenceKind.MISSING,
+            f"No direct signal (log/alert/metric) observed on {focal} itself — would confirm "
+            f"or rule out the shared-dependency hypothesis.", source="telemetry")]
+        if self._historical_match(history, "upstream", focal):
+            sb.add("historical_pattern_match", W_HISTORICAL_MATCH)
+        recs = [self._build_recommendation(
+            f"Inspect health of shared upstream dependency {focal}", RiskTier.DIAGNOSTIC,
+            f"Its simultaneous downstream failures ({dep_list}) point to it as the common root.",
+            node_to_act_on=focal)]
+        return Hypothesis(
+            root_cause=f"Shared upstream dependency {focal} degraded, impacting {len(downstream_nodes)} dependents",
+            kind="shared_dependency", confidence=sb.confidence, score_breakdown=sb.components,
+            confirmed_evidence=[], correlated_signals=correlated,
+            missing_evidence=missing, recommendations=recs)
+
     def _behavioral_hypothesis(self, node, anomalies, alerts):
         # only when anomalies exist without a clearer (config/attack/upstream) cause
         if not anomalies or alerts:
@@ -576,6 +721,7 @@ class RCAEngine:
                 continue
             items.append({
                 "timestamp": e.timestamp,
+                "ingested_at": e.ingested_at,   # monotonic tiebreaker for same-ms ordering
                 "time": time.strftime("%H:%M:%S", time.gmtime(e.timestamp)),
                 "type": e.event_type.value, "node": e.node, "severity": e.severity.value,
                 "text": e.signature or e.description, "source": e.source,
@@ -583,4 +729,4 @@ class RCAEngine:
         # de-duplicate dense flow noise: keep alerts/anomalies/config + a cap of flows
         key_items = [i for i in items if i["type"] != "network_flow"]
         flow_items = [i for i in items if i["type"] == "network_flow"][:20]
-        return sorted(key_items + flow_items, key=lambda x: x["timestamp"])
+        return sorted(key_items + flow_items, key=lambda x: (x["timestamp"], x["ingested_at"]))

@@ -166,6 +166,7 @@ def root_cause_node(state: AgentState) -> dict[str, Any]:
                 focal_node=state["focal_node"],
                 window_events=state["raw_events"],
                 history=state["history"],
+                downstream_nodes=state.get("downstream_nodes", []),
             )
 
             # Award historical_pattern_match bonus when GraphRAG found a matching runbook

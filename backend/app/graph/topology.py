@@ -17,6 +17,7 @@ from neo4j import GraphDatabase, Driver
 import pandas as pd
 
 from ..core.config import settings
+from ..core import tracing
 from ..ingestion.schema import infer_service_role, to_int
 
 
@@ -51,6 +52,10 @@ class TopologyGraph:
     # ---- construction ----
     def build_from_unsw(self, df: pd.DataFrame) -> "TopologyGraph":
         """Add nodes/edges from real UNSW flows to Neo4j. Node role = majority server role."""
+        with tracing.span("topology.build_from_unsw", flow_count=len(df)):
+            return self._build_from_unsw(df)
+
+    def _build_from_unsw(self, df: pd.DataFrame) -> "TopologyGraph":
         if self.driver is None:
             self.initialize()
 
@@ -120,61 +125,66 @@ class TopologyGraph:
 
     # ---- traversal (spec: upstream/downstream/blast radius/path) ----
     def upstream_dependencies(self, node: str) -> list[str]:
-        if self.driver is None:
-            return []
-        with self.driver.session() as session:
-            result = session.run(
-                "MATCH (n:Node {id: $id})-[:DEPENDS_ON]->(dep:Node) RETURN dep.id AS id",
-                {"id": node}
-            )
-            return [row["id"] for row in result]
+        with tracing.span("topology.upstream_dependencies", node=node):
+            if self.driver is None:
+                return []
+            with self.driver.session() as session:
+                result = session.run(
+                    "MATCH (n:Node {id: $id})-[:DEPENDS_ON]->(dep:Node) RETURN dep.id AS id",
+                    {"id": node}
+                )
+                return [row["id"] for row in result]
 
     def downstream_dependents(self, node: str) -> list[str]:
-        if self.driver is None:
-            return []
-        with self.driver.session() as session:
-            result = session.run(
-                "MATCH (client:Node)-[:DEPENDS_ON]->(n:Node {id: $id}) RETURN client.id AS id",
-                {"id": node}
-            )
-            return [row["id"] for row in result]
+        with tracing.span("topology.downstream_dependents", node=node):
+            if self.driver is None:
+                return []
+            with self.driver.session() as session:
+                result = session.run(
+                    "MATCH (client:Node)-[:DEPENDS_ON]->(n:Node {id: $id}) RETURN client.id AS id",
+                    {"id": node}
+                )
+                return [row["id"] for row in result]
 
     def blast_radius(self, node: str, max_depth: int = 4) -> dict:
         """All nodes that transitively depend on `node` (transitive predecessors)."""
-        if self.driver is None:
-            return {"impacted": [], "count": 0, "depth": 0}
-        with self.driver.session() as session:
-            # Query all paths of length up to max_depth ending in `node`
-            result = session.run(
-                """
-                MATCH path = (client:Node)-[:DEPENDS_ON*1..4]->(n:Node {id: $id})
-                WHERE client.id <> $id
-                RETURN client.id AS id, length(path) AS depth
-                """,
-                {"id": node}
-            )
-            
-            impacted_map = {}
-            max_d = 0
-            for row in result:
-                cid = row["id"]
-                cd = row["depth"]
-                impacted_map[cid] = min(impacted_map.get(cid, cd), cd)
-                max_d = max(max_d, cd)
+        with tracing.span("topology.blast_radius", node=node, max_depth=max_depth) as current:
+            if self.driver is None:
+                return {"impacted": [], "count": 0, "depth": 0}
+            with self.driver.session() as session:
+                # Query all paths of length up to max_depth ending in `node`
+                result = session.run(
+                    """
+                    MATCH path = (client:Node)-[:DEPENDS_ON*1..4]->(n:Node {id: $id})
+                    WHERE client.id <> $id
+                    RETURN client.id AS id, length(path) AS depth
+                    """,
+                    {"id": node}
+                )
 
-            # Sort levels based on distance
-            levels = [[] for _ in range(max_d)]
-            for cid, depth in impacted_map.items():
-                levels[depth - 1].append(cid)
-            
-            levels = [sorted(lvl) for lvl in levels if lvl]
+                impacted_map = {}
+                max_d = 0
+                for row in result:
+                    cid = row["id"]
+                    cd = row["depth"]
+                    impacted_map[cid] = min(impacted_map.get(cid, cd), cd)
+                    max_d = max(max_d, cd)
 
-            return {
-                "impacted": sorted(impacted_map.keys()),
-                "count": len(impacted_map),
-                "depth": max_d,
-                "levels": levels
-            }
+                # Sort levels based on distance
+                levels = [[] for _ in range(max_d)]
+                for cid, depth in impacted_map.items():
+                    levels[depth - 1].append(cid)
+
+                levels = [sorted(lvl) for lvl in levels if lvl]
+
+                current.set_attribute("blast_radius_count", len(impacted_map))
+                current.set_attribute("blast_radius_depth", max_d)
+                return {
+                    "impacted": sorted(impacted_map.keys()),
+                    "count": len(impacted_map),
+                    "depth": max_d,
+                    "levels": levels
+                }
 
     def dependency_path(self, source: str, target: str) -> list[str]:
         if source == target:

@@ -15,6 +15,7 @@ from sklearn.preprocessing import StandardScaler
 
 from ..core.config import settings
 from ..core.events import Event, EventType, Severity
+from ..core import tracing
 from ..ingestion.schema import UNSW_NUMERIC_FEATURES, infer_service_role
 from .signatures import classify as classify_signature
 
@@ -70,25 +71,29 @@ class FlowAnomalyDetector:
         return out
 
     def fit(self, df: pd.DataFrame) -> DetectorReport:
-        rows = df.head(settings.iforest_max_train_rows)
-        x = self.scaler.fit_transform(self._matrix(rows))
-        self.model.fit(x)
-        self._fitted = True
-        return DetectorReport(trained_rows=len(rows), features=self.features)
+        with tracing.span("detection.isolation_forest.fit", rows=len(df), contamination=self.contamination) as current:
+            rows = df.head(settings.iforest_max_train_rows)
+            x = self.scaler.fit_transform(self._matrix(rows))
+            self.model.fit(x)
+            self._fitted = True
+            current.set_attribute("trained_rows", len(rows))
+            return DetectorReport(trained_rows=len(rows), features=self.features)
 
     def score(self, df: pd.DataFrame) -> pd.DataFrame:
         """Return df with `anomaly_score` (higher = more anomalous) and `is_anomaly`."""
-        if not self._fitted:
-            raise RuntimeError("detector not fitted")
-        x = self.scaler.transform(self._matrix(df))
-        # sklearn: decision_function high=normal; negate so high=anomalous.
-        raw = -self.model.decision_function(x)
-        pred = self.model.predict(x)  # -1 anomaly, 1 normal
-        out = df.copy()
-        out["anomaly_score"] = raw
-        out["is_anomaly"] = (pred == -1).astype(int)
-        out["attribution"] = self._attribution(x, df)
-        return out
+        with tracing.span("detection.isolation_forest.score", rows=len(df)) as current:
+            if not self._fitted:
+                raise RuntimeError("detector not fitted")
+            x = self.scaler.transform(self._matrix(df))
+            # sklearn: decision_function high=normal; negate so high=anomalous.
+            raw = -self.model.decision_function(x)
+            pred = self.model.predict(x)  # -1 anomaly, 1 normal
+            out = df.copy()
+            out["anomaly_score"] = raw
+            out["is_anomaly"] = (pred == -1).astype(int)
+            out["attribution"] = self._attribution(x, df)
+            current.set_attribute("anomaly_count", int(out["is_anomaly"].sum()))
+            return out
 
     def validate(self, df: pd.DataFrame, label_col: str = "Label") -> DetectorReport:
         """Fit-then-score quality vs real labels (precision/recall/F1)."""

@@ -542,7 +542,7 @@ START → Coordinator → Metric → Log → Trace → Graph → RAG → Root Ca
 | **Coordinator** | Bounds the raw event window to 300 events, sets up the shared state |
 | **Metric Agent** | Scans telemetry metrics — flow count, anomaly count, average anomaly score, max severity |
 | **Log Agent** | Examines HDFS error/warning logs within the event window |
-| **Trace Agent** | Extracts high-volume transfer flows as proxy for distributed trace spans |
+| **Trace Agent** | Reads real OpenTelemetry spans captured for this incident's focal node from the in-process span ring buffer (see [§15](#15-opentelemetry-sdk-instrumentation)) — no longer a proxy/simulation |
 | **Graph Agent** | Walks the Neo4j topology — upstream dependencies, downstream dependents, blast radius |
 | **RAG Agent** | GraphRAG search (Qdrant vector similarity + Neo4j topology enrichment) for matching SOPs/runbooks |
 | **Root Cause Agent** | Runs the causal inference `RCAEngine.build_incident()` + awards historical pattern match bonuses from GraphRAG |
@@ -661,6 +661,102 @@ A dark-themed, real-time operations dashboard built with Next.js 16, React 19, a
 | **Socket.IO Client** | `lib/socket.ts` | Real-time event streaming (metrics, incidents, alerts, anomalies, agent steps) |
 
 **Live Features**: Socket.IO-powered real-time updates, per-agent-step progress animation, config change injection, telemetry replay toggle, Grafana iframe embedding, operator authentication.
+
+---
+
+### 15. OpenTelemetry SDK Instrumentation
+
+**Module**: `core/tracing.py`, wired into `main.py`, `pipeline.py`, `agents/nodes.py`, `graph/topology.py`, `detection/isolation_forest.py`, `rca/engine.py`
+
+Every ingestion, detection, topology-traversal, causal-inference, and LangGraph-agent operation is wrapped in a **real OpenTelemetry span** — the Trace Agent (§6) no longer fabricates trace-like data from flow byte sizes; it reads genuinely captured spans.
+
+**Two sinks, one tracer** (`TracerProvider`, `service.name=vajra-rca-backend`):
+
+| Sink | Processor | Purpose |
+|---|---|---|
+| **In-process ring buffer** (`RingBufferSpanExporter`) | `SimpleSpanProcessor` (synchronous, no batching delay) | Always active — the last `VAJRA_OTEL_SPAN_BUFFER_SIZE` (default 2000) finished spans, queryable in-memory. This is what the Trace Agent reads from, so real trace data exists **even with no Docker infra running at all**. |
+| **OTLP/gRPC exporter** → `otel-collector:4317` | `BatchSpanProcessor` (async, background export) | Best-effort. If the collector is unreachable, export failures are swallowed by the background worker — same graceful-degradation pattern already used for Kafka/Neo4j/Qdrant elsewhere in this codebase. Nothing else is affected. |
+
+**What gets a span** (span name → what it measures):
+
+| Span | Emitted from | Key attributes |
+|---|---|---|
+| `http.*` (auto) | `FastAPIInstrumentor` on every `/api/*` request | route, method, status code |
+| `ingestion.load_unsw_raw`, `ingestion.load_hdfs` | `pipeline.py::prepare()` | rows/events loaded |
+| `detection.isolation_forest.fit`, `.score` | `detection/isolation_forest.py` | rows, contamination, anomaly_count |
+| `topology.build_from_unsw`, `.upstream_dependencies`, `.downstream_dependents`, `.blast_radius` | `graph/topology.py` | node, blast_radius_count, blast_radius_depth |
+| `rca.build_incident` | `rca/engine.py` | focal_node, event_count, hypothesis_count, severity |
+| `agent.coordinator` … `agent.report` | `agents/nodes.py` (one span per LangGraph node) | focal_node, agent name, per-agent metrics (e.g. `blast_radius_count` on `agent.graph`, `spans_found` on `agent.trace`) |
+| `pipeline.run_agents`, `pipeline.inject_config_change` | `pipeline.py` | focal_node, event_count |
+
+**Trace Agent → Root Cause → Report**: `agent.trace` pulls real spans from the ring buffer filtered to the incident's focal node and event window, and the Report Agent now includes them verbatim as `trace_spans` on every persisted incident — so real span data (name, duration, attributes) is part of the audit trail, not just an in-memory artifact.
+
+**Configuration** (all optional, sane defaults):
+
+```bash
+VAJRA_OTEL_ENABLED=true                      # false = no-op tracer, zero overhead
+VAJRA_OTEL_EXPORTER_ENDPOINT=localhost:4317  # OTLP/gRPC target
+VAJRA_OTEL_SERVICE_NAME=vajra-rca-backend
+VAJRA_OTEL_SPAN_BUFFER_SIZE=2000
+```
+
+**Scope note**: this pass instruments the backend (real spans, real Trace Agent) without touching Docker/infra — the `otel-collector` container's `service.pipelines` in `infra/otel-collector.yaml` doesn't yet route a `traces` pipeline anywhere (its `otlp` receiver accepts the spans this backend sends, but nothing downstream reads them), so collector-side trace storage/visualization (Elasticsearch/Jaeger/Tempo) remains a follow-up. The ring-buffer sink means this is **not a blocker** for the Trace Agent or blast-radius calculation — both work correctly with zero Docker containers running.
+
+---
+
+### 16. Prometheus `/metrics` Endpoint
+
+**Module**: `core/metrics.py`, wired into `main.py`
+
+A Prometheus text-exposition endpoint at **`GET /metrics`** (root path, not under `/api` — matches Prometheus' default scrape path, and is exactly what `infra/prometheus.yml`'s `vajra-backend` job already points at: `host.docker.internal:8000`, no `metrics_path` override, so it was 404ing until this endpoint existed).
+
+**Design**: a `prometheus_client` custom `Collector` (`VajraCollector`) computes a fresh snapshot on every scrape from state that already exists in the pipeline — `Pipeline.metrics_snapshot()`, `pipeline.topology.stats`, `pipeline.detector_report`, `pipeline.kitsune.stats()`, `tracing.ring_buffer.count` — rather than sprinkling `.inc()`/`.set()` calls across call sites. This mirrors what `/api/metrics` and `/api/status` already report to the dashboard; `/metrics` is the same real state in Prometheus' format, not a second source of truth.
+
+**Metrics exposed**:
+
+| Metric | Type | Source |
+|---|---|---|
+| `vajra_events_total{event_type}` | counter | Real event counters (flows/alerts/anomalies/config_changes/logs) |
+| `vajra_event_rate_per_second{event_type}` | gauge | 10s rolling event rate |
+| `vajra_correlation_window_size` | gauge | Events currently in the 5-minute sliding window |
+| `vajra_open_incidents_total` | gauge | Incidents raised this process lifetime |
+| `vajra_upi_success_rate_pct`, `vajra_card_success_rate_pct`, `vajra_api_checkout_latency_ms`, `vajra_revenue_loss_per_min_usd`, `vajra_business_impact_degraded` | gauge | Live business-impact KPIs (§9) |
+| `vajra_tcp_packet_loss_pct`, `vajra_udp_packet_loss_pct`, `vajra_tcp_buffer_delay_ms`, `vajra_udp_jitter_ms`, `vajra_tcp_window_size_bytes` | gauge | Real protocol impact, computed from flow `sloss`/`dloss`/`tcprtt`/`sjit`/`djit`/`swin` |
+| `vajra_kitsune_enabled`, `vajra_kitsune_packets_seen_total`, `vajra_kitsune_anomalies_total`, `vajra_kitsune_warmed_up` | gauge | Kitsune online-detector state |
+| `vajra_topology_nodes`, `vajra_topology_edges` | gauge | Real Neo4j dependency graph size |
+| `vajra_iforest_trained_rows`, `vajra_iforest_anomaly_rate`, `vajra_iforest_precision`, `vajra_iforest_recall`, `vajra_iforest_f1` | gauge | Isolation Forest fit size + last validation pass (real UNSW-NB15/NSL-KDD labels) |
+| `vajra_otel_span_buffer_size` | gauge | Real OTel spans currently held in the ring buffer (§15) |
+| `vajra_replay_active` | gauge | 1 if live dataset replay is streaming |
+
+**Verified live** against the running `docker-compose` stack: `curl localhost:8000/metrics` returns real counters (confirmed non-zero after a replay burst — e.g. `vajra_events_total{event_type="flows"} 148`), and Prometheus' own target page (`localhost:9090/api/v1/targets`) reports the `vajra-backend` job `health: up` — the scrape that previously 404'd now succeeds every 2 seconds.
+
+**Not an ML input**: the Isolation Forest and Kitsune detectors train on the real UNSW-NB15 dataset (`pipeline.py::prepare`), not on Prometheus metrics. This endpoint is a downstream observability view of pipeline/detector state for Grafana/Prometheus, not an upstream data source for detection — the detectors have real data to analyze regardless of whether anything scrapes `/metrics`.
+
+---
+
+### 17. Elasticsearch Log Indexing (via OTel Collector)
+
+**Module**: `core/otel_logs.py`, wired into `main.py`/`pipeline.py`
+
+Real system and application logs are exported through the OpenTelemetry Logs SDK into the OTel Collector's `logs` pipeline, which forwards to Elasticsearch — the collector-side half of this (`infra/otel-collector.yaml`'s `logs` pipeline: `otlp -> elasticsearch`) already existed but had never received data; nothing exported to it before this.
+
+**Two log sources, both real**:
+
+| Source | Emitted from | Elasticsearch content |
+|---|---|---|
+| **System logs** | `pipeline.py::_hdfs_replay_loop` — every replayed HDFS dataset record | The actual HDFS log line (`Body`), plus `hdfs_component`, `hdfs_event_id`, `hdfs_template` (the dataset's own Drain-parsed template), `hdfs_block_id`, `hdfs_block_label` (Normal/Anomaly ground truth), severity mapped from the dataset's own error/anomaly signal |
+| **Application logs** | `pipeline.py` lifecycle events (`app_logger()`) — pipeline ready, HDFS load result, incident raised, config change injected — plus any `logging.*` call anywhere in the backend (including the OTel SDK's own internal logger) | Real backend operational events, not synthetic — e.g. `Incident raised on 149.171.126.14: ... (severity=high, hypotheses=2)` |
+
+**Design**: `setup_otel_logging()` attaches an OTel `LoggingHandler` to Python's root `logging` logger (best-effort OTLP export, same graceful-degradation pattern as tracing/metrics) plus a console `StreamHandler` so nothing is lost if the collector is down. `system_logger()` and `app_logger()` are just named `logging.Logger`s, kept distinct (`vajra.system_logs` / `vajra.app`) so they're filterable in Kibana/Elasticsearch queries.
+
+**Verified end-to-end** against the running stack, including a real infra bug found and fixed along the way:
+
+- Confirmed via `docker logs vajra-otel-collector` that the collector received real log records with correct attributes (`hdfs_block_id`, `hdfs_template`, etc.) — the backend→collector leg worked immediately.
+- The collector→Elasticsearch leg initially failed on every flush (`illegal_argument_exception`) regardless of index/mapping config. Root cause: `docker-compose.yml` pinned `otel-collector` to the floating `:latest` tag (resolved to a 0.156.0 build using ES 8.15+/9.x-era bulk-indexing semantics) against `elasticsearch:8.10.2` (Sept 2023) — a real version skew in the existing infra, unrelated to the backend code.
+- Fixed by pinning `otel-collector` to `0.96.0` (same era as the pinned ES version) in `docker-compose.yml`.
+- Re-verified: `GET localhost:9200/otel-logs/_search` returns real indexed documents — confirmed **39 real HDFS system-log records** from a single replay burst, each with the genuine dataset content (e.g. `"BLOCK* NameSystem.addStoredBlock: blockMap updated: 10.251.203.80:50010 is added to blk_7888946331804732825 size 67108864"`) and correct `block_id`/`event_id`/severity attributes.
+
+**Not a log-template anomaly detector**: this is log *indexing/search* (parse → structure → make searchable in Elasticsearch), not a new ML detection engine. There is no Drain3 (or similar) log-template-mining detector in this codebase — the HDFS dataset arrives *already* Drain-parsed (`EventId`/`EventTemplate` columns, produced offline by the dataset's authors), and this system reads those columns as-is; it does not run Drain live. A log-template anomaly detector would be new, comparably-sized detection logic (similar scope to Isolation Forest/Kitsune) and is out of scope for this pass.
 
 ---
 
@@ -910,6 +1006,10 @@ Each incident carries a dedicated business impact assessment:
 | **ReportLab** | ≥4.1 | PDF report generation |
 | **MinIO** | ≥7.2 | Object storage client |
 | **NetworkX** | ≥3.3 | Graph algorithms (supplementary) |
+| **OpenTelemetry SDK** | ≥1.27 | Real distributed tracing — spans for ingestion, detection, topology, RCA, and agent operations |
+| **OpenTelemetry OTLP Exporter (gRPC)** | ≥1.27 | Best-effort span export to the `otel-collector` container |
+| **OpenTelemetry FastAPI Instrumentation** | ≥0.48b0 | Automatic HTTP server spans for every `/api/*` request |
+| **prometheus-client** | ≥0.21 | Prometheus text-exposition format for `GET /metrics` |
 
 ### Frontend
 
@@ -936,7 +1036,7 @@ Each incident carries a dedicated business impact assessment:
 | **Prometheus** | `prom/prometheus:latest` | 9090 | Metrics scraping |
 | **Grafana** | `grafana/grafana:latest` | 3001 | Observability dashboards |
 | **MinIO** | `minio/minio:latest` | 9000, 9001 | Object storage (PDF reports) |
-| **OTel Collector** | `otel/opentelemetry-collector-contrib` | 4317, 4318 | Telemetry pipeline |
+| **OTel Collector** | `otel/opentelemetry-collector-contrib:0.96.0` (pinned — see §17) | 4317, 4318 | Telemetry pipeline: metrics → Prometheus, logs → Elasticsearch |
 
 ---
 
@@ -953,6 +1053,9 @@ vajra-rca/
 │   │   ├── core/
 │   │   │   ├── config.py           # Central configuration (Pydantic Settings, dataset paths)
 │   │   │   ├── events.py           # Unified event schema + Kafka event bus
+│   │   │   ├── tracing.py          # OpenTelemetry SDK: real spans, ring buffer + OTLP export
+│   │   │   ├── otel_logs.py        # OpenTelemetry Logs SDK: HDFS system logs + app logs -> Elasticsearch
+│   │   │   ├── metrics.py          # Prometheus /metrics: real pipeline/detector/business state
 │   │   │   └── serialize.py        # NumPy/pandas → JSON serializer
 │   │   │
 │   │   ├── ingestion/
@@ -1202,6 +1305,7 @@ Without a key, the system is fully functional — explanations and chat use a de
 |---|---|---|
 | `GET` | `/api/health` | Health check (`{"status": "ok", "ready": true}`) |
 | `GET` | `/api/status` | Full pipeline status (detector report, topology stats, DB stats) |
+| `GET` | `/metrics` | Prometheus text-exposition format (real pipeline/detector/business state — §16) |
 
 ### Metrics & Topology
 
@@ -1320,6 +1424,10 @@ All settings are environment variables prefixed `VAJRA_` (managed via Pydantic S
 | `VAJRA_KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka bootstrap servers |
 | `VAJRA_MINIO_ENDPOINT` | `localhost:9000` | MinIO endpoint |
 | `VAJRA_MINIO_ACCESS_KEY` / `_SECRET_KEY` | `minioadmin` / `minioadmin` | MinIO credentials |
+| `VAJRA_OTEL_ENABLED` | `true` | Enable OpenTelemetry tracing (`false` = no-op tracer) |
+| `VAJRA_OTEL_EXPORTER_ENDPOINT` | `localhost:4317` | OTLP/gRPC target (`otel-collector`); best-effort, no-op if unreachable |
+| `VAJRA_OTEL_SERVICE_NAME` | `vajra-rca-backend` | `service.name` resource attribute on emitted spans |
+| `VAJRA_OTEL_SPAN_BUFFER_SIZE` | `2000` | In-process ring-buffer size feeding the real Trace Agent |
 
 Frontend: Set `NEXT_PUBLIC_API_URL` in `frontend/.env.local` (default: `http://localhost:8000`).
 
@@ -1369,12 +1477,13 @@ python scripts/verify_e2e.py
 | Done | PDF report generation + MinIO archival |
 | Done | Gemini narrative explanation + grounded chat |
 | Done | Next.js real-time dashboard with Socket.IO |
-| Planned | OpenTelemetry SDK instrumentation for the backend |
-| Planned | Prometheus `/metrics` endpoint (Prometheus-format) |
+| Done | OpenTelemetry SDK instrumentation for the backend (real spans, in-process ring buffer + OTLP export) |
+| Done | Prometheus `/metrics` endpoint (Prometheus-format, real pipeline/detector/business state) |
+| Done | Elasticsearch log indexing from OTel Collector (real HDFS system logs + application logs, verified end-to-end) |
 | Planned | Grafana dashboard auto-provisioning with live backend metrics |
-| Planned | Elasticsearch log indexing from OTel Collector |
+| Planned | Wire a `traces` pipeline into `infra/otel-collector.yaml` (receiver already accepts OTLP spans on 4317/4318; no pipeline routes them yet — out of scope for this pass, see [OpenTelemetry SDK Instrumentation](#opentelemetry-sdk-instrumentation)) |
 
-> **Note**: Prometheus is configured to scrape `host.docker.internal:8000` and the OTel Collector is configured to export to Prometheus/Elasticsearch — but the backend does not yet emit OpenTelemetry traces or Prometheus-format metrics. These services run but carry no application telemetry until instrumented.
+> **Note**: The OTel Collector's `service.pipelines` still has no `traces` entry (its `otlp` receiver accepts spans on 4317/4318 but nothing routes them anywhere), so collector-side trace storage remains **Planned**. Grafana panels for the new Prometheus metrics are not yet provisioned (also **Planned**) — the metrics themselves are live and queryable today. **Traces are no longer simulated**: real OpenTelemetry spans for every ingestion/detection/topology/RCA/agent operation — see [OpenTelemetry SDK Instrumentation](#15-opentelemetry-sdk-instrumentation). **Metrics are no longer missing**: the `vajra-backend` Prometheus scrape target (previously 404ing) now returns real counters/gauges — see [Prometheus /metrics Endpoint](#16-prometheus-metrics-endpoint). **Logs are no longer unindexed**: real HDFS system logs and backend application logs now flow through the OTel Collector into Elasticsearch's `otel-logs` index — see [Elasticsearch Log Indexing](#17-elasticsearch-log-indexing-via-otel-collector).
 
 ---
 

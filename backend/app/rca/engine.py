@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass, field
 
 from ..core.config import settings
 from ..core.events import Event, EventType, Severity
+from ..core import tracing
 from ..graph.topology import TopologyGraph
 from .scoring import (
     W_CONFIG_WITHIN_WINDOW, W_CONFIRMED_MATCH, W_DIRECT_UPSTREAM_DEP,
@@ -90,6 +91,14 @@ class RCAEngine:
     # ---------- incident construction ----------
     def build_incident(self, focal_node: str, window_events: list[Event],
                        history: list[dict] | None = None) -> Incident:
+        with tracing.span("rca.build_incident", focal_node=focal_node, event_count=len(window_events)) as current:
+            incident = self._build_incident_impl(focal_node, window_events, history)
+            current.set_attribute("hypothesis_count", len(incident.hypotheses))
+            current.set_attribute("severity", incident.severity)
+            return incident
+
+    def _build_incident_impl(self, focal_node: str, window_events: list[Event],
+                              history: list[dict] | None = None) -> Incident:
         history = history or []
         window_events = sorted(window_events, key=lambda e: e.timestamp)
         anomalies = [e for e in window_events if e.event_type == EventType.ANOMALY and e.node == focal_node]

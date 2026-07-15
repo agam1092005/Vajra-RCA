@@ -15,6 +15,7 @@ Signal sources (all real, no mocks):
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections import deque
 from typing import Callable
@@ -23,6 +24,8 @@ import pandas as pd
 
 from .core.config import settings
 from .core.events import Event, EventType, Severity, bus
+from .core import tracing
+from .core.otel_logs import app_logger, system_logger
 from .detection.isolation_forest import FlowAnomalyDetector, anomaly_event_from_flow
 from .detection.kitsune import get_kitsune_engine
 from .graph.topology import TopologyGraph
@@ -61,44 +64,57 @@ class Pipeline:
         self.window_seconds = settings.correlation_window_s
         self.incident_cooldown = 12.0
         self.open_incidents_count = 0
+        self._app_log = app_logger()
+        self._sys_log = system_logger()
         bus.subscribe(self._on_event_received)
 
     # ---------- setup (real data) ----------
     def prepare(self, limit: int = 20000) -> dict:
-        # 1. UNSW-NB15
-        df = load_unsw_raw(limit=limit)
-        self.topology.build_from_unsw(df)
-        self.detector_report = self.detector.fit(df)
-        scored = self.detector.score(df)
-        scored = scored.sort_values("Stime").reset_index(drop=True)
-        self._replay_rows = scored
+        with tracing.span("pipeline.prepare", limit=limit) as current:
+            # 1. UNSW-NB15
+            with tracing.span("ingestion.load_unsw_raw", limit=limit) as load_span:
+                df = load_unsw_raw(limit=limit)
+                load_span.set_attribute("rows_loaded", len(df))
+            self.topology.build_from_unsw(df)
+            self.detector_report = self.detector.fit(df)
+            scored = self.detector.score(df)
+            scored = scored.sort_values("Stime").reset_index(drop=True)
+            self._replay_rows = scored
 
-        # 2. HDFS logs
-        try:
-            self._hdfs_labels = load_hdfs_labels()
-            self._hdfs_df = load_hdfs_structured(limit=2000)
-            print(f"[Pipeline] HDFS: {len(self._hdfs_df)} log events loaded")
-        except Exception as exc:
-            print(f"[Pipeline] HDFS load failed (non-fatal): {exc}")
-            self._hdfs_df = None
+            # 2. HDFS logs
+            with tracing.span("ingestion.load_hdfs") as hdfs_span:
+                try:
+                    self._hdfs_labels = load_hdfs_labels()
+                    self._hdfs_df = load_hdfs_structured(limit=2000)
+                    hdfs_span.set_attribute("events_loaded", len(self._hdfs_df))
+                    self._app_log.info(f"HDFS: {len(self._hdfs_df)} log events loaded")
+                except Exception as exc:
+                    self._app_log.warning(f"HDFS load failed (non-fatal): {exc}")
+                    self._hdfs_df = None
 
-        # 3. Hot node (most-attacked destination)
-        atk = df[df.Label == 1]
-        self.hot_node = (
-            atk["dstip"].value_counts().index[0]
-            if len(atk) else df["dstip"].value_counts().index[0]
-        )
-        self.rca = RCAEngine(self.topology)
-        self.config_monitor.ensure_repo(governed_node=self.hot_node)
+            # 3. Hot node (most-attacked destination)
+            atk = df[df.Label == 1]
+            self.hot_node = (
+                atk["dstip"].value_counts().index[0]
+                if len(atk) else df["dstip"].value_counts().index[0]
+            )
+            self.rca = RCAEngine(self.topology)
+            self.config_monitor.ensure_repo(governed_node=self.hot_node)
 
-        return {
-            "flows_loaded": len(df),
-            "topology": self.topology.stats,
-            "hot_node": self.hot_node,
-            "detector": vars(self.detector_report),
-            "kitsune_enabled": self.kitsune.enabled,
-            "hdfs_events": len(self._hdfs_df) if self._hdfs_df is not None else 0,
-        }
+            current.set_attribute("flows_loaded", len(df))
+            current.set_attribute("hot_node", str(self.hot_node))
+            self._app_log.info(
+                f"Pipeline ready: {len(df)} flows, hot_node={self.hot_node}, "
+                f"topology={self.topology.stats}, kitsune_enabled={self.kitsune.enabled}"
+            )
+            return {
+                "flows_loaded": len(df),
+                "topology": self.topology.stats,
+                "hot_node": self.hot_node,
+                "detector": vars(self.detector_report),
+                "kitsune_enabled": self.kitsune.enabled,
+                "hdfs_events": len(self._hdfs_df) if self._hdfs_df is not None else 0,
+            }
 
     @property
     def replay_active(self) -> bool:
@@ -208,6 +224,24 @@ class Pipeline:
             # Reset timestamp to now so it falls in the live correlation window
             ev.timestamp = time.time()
             await bus.publish(ev)
+
+            # Real HDFS system log content -> OTel Collector 'logs' pipeline -> Elasticsearch,
+            # so the actual dataset record (not just the in-memory Event) is indexed/searchable.
+            is_error = bool(ev.attributes.get("is_error"))
+            level = logging.WARNING if is_error or ev.event_type == EventType.SECURITY_ALERT else logging.INFO
+            self._sys_log.log(
+                level, ev.description,
+                extra={
+                    "hdfs_component": ev.attributes.get("component"),
+                    "hdfs_event_id": ev.attributes.get("event_id"),
+                    "hdfs_template": ev.attributes.get("template"),
+                    "hdfs_block_id": ev.attributes.get("block_id"),
+                    "hdfs_block_label": ev.attributes.get("block_label"),
+                    "hdfs_level": ev.attributes.get("level"),
+                    "source": "hdfs",
+                },
+            )
+
             i += 1
             await asyncio.sleep(delay)
 
@@ -256,6 +290,11 @@ class Pipeline:
             self.history.append(incident_dict)
             self.history = self.history[-50:]
             self.emit("incident", incident_dict)
+            self._app_log.warning(
+                f"Incident raised on {node}: {incident_dict.get('title')} "
+                f"(severity={incident_dict.get('severity')}, "
+                f"hypotheses={len(incident_dict.get('hypotheses', []))})"
+            )
             return incident_dict
         return None
 
@@ -279,15 +318,16 @@ class Pipeline:
         loop = asyncio.get_running_loop()
 
         def _run_stream() -> dict:
-            state = dict(initial_state)
-            for step in agent_graph.stream(initial_state, stream_mode="updates"):
-                for node_name, update in step.items():
-                    state.update(update)
-                    loop.call_soon_threadsafe(
-                        self.emit, "agent_step",
-                        {"node": node_name, "focal_node": node, "ts": time.time()},
-                    )
-            return state
+            with tracing.span("pipeline.run_agents", focal_node=node, event_count=len(related)):
+                state = dict(initial_state)
+                for step in agent_graph.stream(initial_state, stream_mode="updates"):
+                    for node_name, update in step.items():
+                        state.update(update)
+                        loop.call_soon_threadsafe(
+                            self.emit, "agent_step",
+                            {"node": node_name, "focal_node": node, "ts": time.time()},
+                        )
+                return state
 
         final_state = await asyncio.to_thread(_run_stream)
         return final_state["final_report"]
@@ -296,6 +336,10 @@ class Pipeline:
     async def inject_config_change(self, node: str | None = None) -> dict:
         """Make a real config commit, then correlate it against the anomalies that
         follow it (so the change genuinely *precedes* the impact — the causal case)."""
+        with tracing.span("pipeline.inject_config_change", node=node or self.hot_node):
+            return await self._inject_config_change_impl(node)
+
+    async def _inject_config_change_impl(self, node: str | None = None) -> dict:
         node = node or self.hot_node
         cfg_ts = time.time()
         content = (
@@ -310,6 +354,7 @@ class Pipeline:
         )
         ev.timestamp = cfg_ts
         await bus.publish(ev)
+        self._app_log.info(f"Config change injected on {node}: {ev.description}")
 
         # Stream real malicious/anomalous flows for the node into the post-change window
         await self._replay_node_impact(node, cfg_ts)

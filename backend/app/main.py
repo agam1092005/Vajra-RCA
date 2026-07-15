@@ -9,18 +9,30 @@ import asyncio
 import logging
 
 import socketio
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel
 
 from .core.config import settings
 from .core.serialize import to_jsonable
 from .core.events import bus
+from .core.metrics import build_registry
+from .core.otel_logs import setup_otel_logging
+from .core.tracing import setup_tracing
 from .db.store import store
 from .llm import gemini
 from .pipeline import Pipeline
 from .rag.graphrag import graphrag
 from .utils.reporter import generate_and_upload_report
+
+# Real OTel spans from here on — REST requests, ingestion, detection, topology
+# queries, and every LangGraph agent node. See core/tracing.py.
+setup_tracing()
+# Real OTel logs from here on — application lifecycle events + replayed HDFS
+# system logs, exported to the OTel Collector's `logs` pipeline -> Elasticsearch.
+setup_otel_logging()
 
 # Silence per-request INFO logging from HTTP client libs (Qdrant/httpx emit a line
 # for every "POST .../points/query 200 OK"). Cosmetic only — warnings/errors still show.
@@ -33,6 +45,8 @@ api.add_middleware(
     CORSMiddleware, allow_origins=settings.cors_origins + ["*"],
     allow_methods=["*"], allow_headers=["*"], allow_credentials=True,
 )
+# Every /api/* request becomes a real HTTP server span (route, method, status code).
+FastAPIInstrumentor.instrument_app(api)
 
 
 def _emit(event: str, data: dict) -> None:
@@ -45,6 +59,7 @@ def _emit(event: str, data: dict) -> None:
 
 pipeline = Pipeline(emit=_emit)
 _status: dict = {"ready": False}
+_metrics_registry = build_registry(pipeline)
 
 
 @api.on_event("startup")
@@ -87,6 +102,16 @@ async def status() -> dict:
 @api.get("/api/metrics")
 async def metrics() -> dict:
     return to_jsonable(pipeline.metrics_snapshot())
+
+
+@api.get("/metrics")
+async def prometheus_metrics() -> Response:
+    """Prometheus text-exposition format — computed fresh from real pipeline
+    state on every scrape (see core/metrics.py). This is the target
+    `infra/prometheus.yml`'s `vajra-backend` job already points at; root path
+    (not under /api) to match Prometheus' default `/metrics` scrape path."""
+    body = await asyncio.to_thread(generate_latest, _metrics_registry)
+    return Response(content=body, media_type=CONTENT_TYPE_LATEST)
 
 
 @api.get("/api/topology")

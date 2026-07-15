@@ -109,7 +109,12 @@ services:
       retries: 5
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
+    # Pinned (not :latest): the elasticsearchexporter in newer collector builds
+    # (0.15x, tested against ES 8.15+/9.x "logsdb" semantics) 400s on every
+    # bulk flush against the pinned elasticsearch:8.10.2 below. 0.96.0 is from
+    # the same era as 8.10.2 and uses the older, compatible non-data-stream
+    # bulk indexing path. See README §17.
+    image: otel/opentelemetry-collector-contrib:0.96.0
     container_name: vajra-otel-collector
     ports:
       - "4317:4317"

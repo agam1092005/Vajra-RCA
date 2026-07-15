@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     # ---- replay ----
     replay_speed: float = 60.0            # real dataset timestamps compressed by this factor for live demo
 
+    # ---- observability (OpenTelemetry) ----
+    otel_enabled: bool = True
+    otel_exporter_endpoint: str = "localhost:4317"   # OTLP/gRPC target (otel-collector); best-effort, no-op if unreachable
+    otel_service_name: str = "vajra-rca-backend"
+    otel_span_buffer_size: int = 2000     # in-process ring buffer size feeding the real Trace Agent
+
     @property
     def nsl_kdd_train(self) -> Path:
         return self.datasets_dir / "KDDTrain+" / "KDDTrain+.txt"

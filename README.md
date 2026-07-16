@@ -42,6 +42,8 @@
 
 **Vajra RCA** (Root-Cause Assistant) is an enterprise-grade observability and diagnostics platform purpose-built for network operations centers (NOCs), security operations centers (SOCs), and site reliability engineering (SRE) teams. It goes beyond traditional alerting by answering the critical question: **"Why did this happen?"**
 
+<img width="1710" height="878" alt="dashboard" src="https://github.com/user-attachments/assets/45e24a42-ad55-4731-99ea-a79dafbe4851" />
+
 Unlike conventional monitoring tools that simply flag anomalies, Vajra RCA:
 
 1. **Ingests heterogeneous signals** — network flows, system logs, security alerts, topology data, and configuration changes — all normalized into a unified event schema.

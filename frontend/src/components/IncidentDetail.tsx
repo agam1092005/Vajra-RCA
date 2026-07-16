@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Attribution, Explanation, Hypothesis, Incident } from "@/lib/types";
-import { ConfidenceBar, SeverityBadge, TierBadge } from "./ui";
+import { ConfidenceBar, ExpandButton, SeverityBadge, TierBadge } from "./ui";
 
 function EvidenceColumn({
   title,
@@ -232,7 +232,19 @@ function HypothesisCard({
   );
 }
 
-export function IncidentDetail({ id, liveBusinessImpact }: { id: string; liveBusinessImpact?: any }) {
+export function IncidentDetail({
+  id,
+  liveBusinessImpact,
+  wide = false,
+  expanded = false,
+  onToggleExpand,
+}: {
+  id: string;
+  liveBusinessImpact?: any;
+  wide?: boolean;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+}) {
   const [inc, setInc] = useState<Incident | null>(null);
   const [expl, setExpl] = useState<Explanation | null>(null);
   const [loadingExpl, setLoadingExpl] = useState(false);
@@ -335,8 +347,12 @@ export function IncidentDetail({ id, liveBusinessImpact }: { id: string; liveBus
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-[var(--border)] p-4">
+    <div className={`flex flex-col ${wide ? "" : "h-full"}`}>
+      <div
+        className={`border-b border-[var(--border)] p-4 ${
+          wide ? "sticky top-0 z-10 rounded-t-xl bg-[var(--panel)]/95 backdrop-blur-md" : ""
+        }`}
+      >
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <SeverityBadge severity={inc.severity} />
           <span className="mono text-[11px] text-[var(--muted)]">#{inc.incident_id}</span>
@@ -361,8 +377,17 @@ export function IncidentDetail({ id, liveBusinessImpact }: { id: string; liveBus
               {generatingReport ? "Generating PDF..." : "Generate PDF Report"}
             </button>
           )}
+          {onToggleExpand && (
+            <div className="ml-auto">
+              <ExpandButton
+                expanded={expanded}
+                onClick={onToggleExpand}
+                title={expanded ? "Exit focus view (Esc)" : "Expand analysis"}
+              />
+            </div>
+          )}
         </div>
-        <h2 className="text-lg font-semibold text-[var(--text)]">{inc.title}</h2>
+        <h2 className={`font-semibold text-[var(--text)] ${wide ? "text-2xl" : "text-lg"}`}>{inc.title}</h2>
         <p className="mt-1 text-sm text-[var(--muted)]">{inc.summary}</p>
         <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
           <span className="mono rounded bg-[var(--panel-2)] border border-[var(--border)] px-2 py-1 text-[var(--muted)]">
@@ -379,7 +404,13 @@ export function IncidentDetail({ id, liveBusinessImpact }: { id: string; liveBus
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
+      <div
+        className={
+          wide
+            ? "p-6 lg:[column-count:2] lg:[column-gap:1.5rem] [&>*]:mb-6 [&>*]:break-inside-avoid"
+            : "min-h-0 flex-1 space-y-4 overflow-auto p-4"
+        }
+      >
         {(() => {
           const businessImpact = (inc?.business_impact?.status === "degraded" && liveBusinessImpact?.status === "degraded")
             ? { ...inc.business_impact, ...liveBusinessImpact }

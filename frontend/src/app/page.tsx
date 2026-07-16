@@ -7,7 +7,7 @@ import type { AgentStep, Incident, IncidentSummary, Metrics, TopologyData } from
 import { MetricsChart, type RatePoint } from "@/components/MetricsChart";
 import { TopologyGraph } from "@/components/TopologyGraph";
 import { IncidentDetail } from "@/components/IncidentDetail";
-import { Section, SeverityBadge } from "@/components/ui";
+import { ExpandButton, Section, SeverityBadge } from "@/components/ui";
 import { AgentPipeline } from "@/components/AgentPipeline";
 
 function StatTile({
@@ -46,6 +46,8 @@ export default function Dashboard() {
   const [focalIncident, setFocalIncident] = useState<Incident | null>(null);
   const [injecting, setInjecting] = useState(false);
   const [leftTab, setLeftTab] = useState<"topology" | "grafana">("topology");
+  const [detailExpanded, setDetailExpanded] = useState(false);
+  const [topoExpanded, setTopoExpanded] = useState(false);
   const rateRef = useRef<RatePoint[]>([]);
   const [agentStep, setAgentStep] = useState<AgentStep | null>(null);
   const agentStepTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -69,6 +71,18 @@ export default function Dashboard() {
     if (typeof window !== "undefined") {
       setIsAuthenticated(localStorage.getItem("authenticated") === "true");
     }
+  }, []);
+
+  // Esc collapses any expanded focus view.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setDetailExpanded(false);
+        setTopoExpanded(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const handleLogin = (e: React.FormEvent) => {
@@ -278,31 +292,44 @@ export default function Dashboard() {
           <Section title="Live signal rate (/s)" className="h-[210px]">
             <MetricsChart data={rates} />
           </Section>
-          <Section 
-            title={leftTab === "topology" ? "Dependency topology" : "Grafana Observability"} 
-            className="min-h-0 flex-1"
+          {topoExpanded && (
+            <div
+              className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm"
+              onClick={() => setTopoExpanded(false)}
+            />
+          )}
+          <Section
+            title={leftTab === "topology" ? "Dependency topology" : "Grafana Observability"}
+            className={topoExpanded ? "fixed inset-3 z-50 sm:inset-6" : "min-h-0 flex-1"}
             right={
-              <div className="flex gap-1 bg-[var(--bg)] p-0.5 rounded-lg border border-[var(--border)]">
-                <button
-                  onClick={() => setLeftTab("topology")}
-                  className={`px-2 py-0.5 text-[10px] rounded font-semibold transition ${
-                    leftTab === "topology"
-                      ? "bg-[var(--panel-2)] text-[var(--text)]"
-                      : "text-[var(--muted)] hover:text-[var(--text)]"
-                  }`}
-                >
-                  Topology
-                </button>
-                <button
-                  onClick={() => setLeftTab("grafana")}
-                  className={`px-2 py-0.5 text-[10px] rounded font-semibold transition ${
-                    leftTab === "grafana"
-                      ? "bg-[var(--panel-2)] text-[var(--text)]"
-                      : "text-[var(--muted)] hover:text-[var(--text)]"
-                  }`}
-                >
-                  Grafana
-                </button>
+              <div className="flex items-center gap-2">
+                <div className="flex gap-1 bg-[var(--bg)] p-0.5 rounded-lg border border-[var(--border)]">
+                  <button
+                    onClick={() => setLeftTab("topology")}
+                    className={`px-2 py-0.5 text-[10px] rounded font-semibold transition ${
+                      leftTab === "topology"
+                        ? "bg-[var(--panel-2)] text-[var(--text)]"
+                        : "text-[var(--muted)] hover:text-[var(--text)]"
+                    }`}
+                  >
+                    Topology
+                  </button>
+                  <button
+                    onClick={() => setLeftTab("grafana")}
+                    className={`px-2 py-0.5 text-[10px] rounded font-semibold transition ${
+                      leftTab === "grafana"
+                        ? "bg-[var(--panel-2)] text-[var(--text)]"
+                        : "text-[var(--muted)] hover:text-[var(--text)]"
+                    }`}
+                  >
+                    Grafana
+                  </button>
+                </div>
+                <ExpandButton
+                  expanded={topoExpanded}
+                  onClick={() => setTopoExpanded((v) => !v)}
+                  title={topoExpanded ? "Exit focus view (Esc)" : "Expand view"}
+                />
               </div>
             }
           >
@@ -354,10 +381,35 @@ export default function Dashboard() {
           </Section>
         </div>
 
-        <div className="col-span-12 min-h-0 lg:col-span-5">
-          <div className="panel h-full overflow-hidden">
+        <div
+          className={
+            detailExpanded
+              ? "fixed inset-0 z-50 flex flex-col overflow-y-auto bg-black/70 p-3 backdrop-blur-sm sm:p-6"
+              : "col-span-12 min-h-0 lg:col-span-5"
+          }
+          onClick={
+            detailExpanded
+              ? (e) => {
+                  if (e.target === e.currentTarget) setDetailExpanded(false);
+                }
+              : undefined
+          }
+        >
+          <div
+            className={`panel ${
+              detailExpanded
+                ? "mx-auto w-full max-w-[1500px] overflow-visible"
+                : "h-full overflow-hidden"
+            }`}
+          >
             {selected ? (
-              <IncidentDetail id={selected} liveBusinessImpact={metrics?.business_impact} />
+              <IncidentDetail
+                id={selected}
+                liveBusinessImpact={metrics?.business_impact}
+                wide={detailExpanded}
+                expanded={detailExpanded}
+                onToggleExpand={() => setDetailExpanded((v) => !v)}
+              />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-[var(--muted)]">
                 Select an incident

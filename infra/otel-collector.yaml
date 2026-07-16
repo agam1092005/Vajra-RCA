@@ -15,6 +15,7 @@ exporters:
   elasticsearch:
     endpoints: ["http://elasticsearch:9200"]
     logs_index: "otel-logs"
+    traces_index: "otel-traces"
     # NOTE: requires otel-collector pinned to ~0.96.0 (see docker-compose.yml) —
     # newer collector builds (0.15x) use ES 8.15+/9.x bulk-indexing semantics
     # and 400 ("illegal_argument_exception") on every flush against the pinned
@@ -24,6 +25,10 @@ exporters:
 
 service:
   pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [elasticsearch, debug]
     metrics:
       receivers: [otlp]
       processors: [batch]

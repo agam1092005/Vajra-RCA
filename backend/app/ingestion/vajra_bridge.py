@@ -17,12 +17,49 @@ Usage:
 """
 from __future__ import annotations
 
+import logging
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
 from ..core.events import Event, EventType, Severity
+
+
+def _purge_legacy_ml_file_log() -> None:
+    """Remove the dead, always-empty ``logs/ml_model_manager.log`` artifact.
+
+    Importing the bundled ``ml_model_manager`` module runs, at import time,
+    ``Path('logs').mkdir()`` and ``logging.basicConfig`` with a
+    ``FileHandler('logs/ml_model_manager.log')``. Our OTel logging
+    (``core/otel_logs.py``) has already installed root handlers by then, so that
+    ``basicConfig`` is a no-op and the file handler is never attached — the
+    ``ml_model_manager`` logger propagates to root instead, so its records
+    already land in ``var/server.log`` and Elasticsearch. But constructing the
+    discarded handler still leaves an empty ``logs/ml_model_manager.log`` on
+    disk every startup. Detach any stray handler and delete the empty file/dir
+    so the backend doesn't accumulate a misleading always-empty log.
+    """
+    target = "ml_model_manager.log"
+    for lg in (logging.getLogger(), logging.getLogger("ml_model_manager")):
+        for h in list(lg.handlers):
+            base = getattr(h, "baseFilename", "")
+            if base and base.endswith(target):
+                lg.removeHandler(h)
+                try:
+                    h.close()
+                except Exception:
+                    pass
+    # cwd-relative, matching the bundled module's own ``Path("logs")``.
+    log_path = Path("logs") / target
+    try:
+        if log_path.exists() and log_path.stat().st_size == 0:
+            log_path.unlink()
+        parent = log_path.parent
+        if parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
+    except OSError:
+        pass
 
 # ---- locate Vajra_SIH relative to this file ----
 # backend/app/ingestion/vajra_bridge.py -> repo root is [3] parents -> ../Vajra_SIH
@@ -76,6 +113,10 @@ def _get_manager():
     except Exception as exc:
         print(f"[VajraBridge] Could not load MLModelManager: {exc}. Bridge disabled.")
         _manager = None
+    finally:
+        # Importing ml_model_manager above always leaves an empty
+        # logs/ml_model_manager.log behind (see _purge_legacy_ml_file_log).
+        _purge_legacy_ml_file_log()
     return _manager
 
 

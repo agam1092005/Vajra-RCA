@@ -21,6 +21,8 @@ before this module existed, so `otel-logs` sat empty. This wires:
 from __future__ import annotations
 
 import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
@@ -50,6 +52,22 @@ def setup_otel_logging() -> None:
         stream_handler = logging.StreamHandler()
         stream_handler.setFormatter(logging.Formatter("[%(name)s] %(message)s"))
         root.addHandler(stream_handler)
+
+    # Durable file sink at backend/var/server.log, owned by the app itself so it
+    # exists regardless of how the process is launched (dev.sh, bare uvicorn,
+    # background) and is recreated on every start. Rotates to keep disk bounded
+    # (the whole project runs under a tight disk budget). Resolved relative to
+    # this file — not cwd — so the path is stable no matter where uvicorn runs.
+    if not any(isinstance(h, RotatingFileHandler) for h in root.handlers):
+        log_path = Path(__file__).resolve().parents[2] / "var" / "server.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            log_path, maxBytes=5 * 1024 * 1024, backupCount=3
+        )
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+        )
+        root.addHandler(file_handler)
 
     if not settings.otel_enabled:
         _provider = LoggerProvider(resource=Resource.create({"service.name": settings.otel_service_name}))

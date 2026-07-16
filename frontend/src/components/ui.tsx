@@ -1,4 +1,28 @@
+import { Maximize2, Minimize2 } from "lucide-react";
 import { SEV_COLOR } from "@/lib/api";
+
+export function ExpandButton({
+  expanded,
+  onClick,
+  title,
+}: {
+  expanded: boolean;
+  onClick: () => void;
+  title?: string;
+}) {
+  const label = title ?? (expanded ? "Collapse" : "Expand");
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--panel-2)] text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--text)] cursor-pointer"
+    >
+      {expanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+    </button>
+  );
+}
 
 export function SeverityBadge({ severity }: { severity: string }) {
   const c = SEV_COLOR[severity] ?? SEV_COLOR.info;

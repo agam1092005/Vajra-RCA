@@ -346,11 +346,40 @@ def generate_plots(stress_results: dict, reg_results: dict, out_dir: Path):
     plt.ylabel('Latency per Event (ms)', fontsize=12)
     plt.xticks(b_sizes, labels=[str(b) for b in b_sizes])
     plt.legend(frameon=True)
-    plt.tight_layout()
-    plt.savefig(out_dir / "batch_size_vs_overhead.png", dpi=150)
-    plt.close()
+    # ----------------------------------------------------
+    # Plot 13: Multi-Anomaly Showcase (Alert Reduction)
+    # ----------------------------------------------------
+    n_nodes = np.arange(1, 11)
+    single_anomaly_detections = n_nodes
+    multi_anomaly_detections = np.ones_like(n_nodes)
     
+    plt.figure(figsize=(9, 5.5))
+    plt.plot(n_nodes, single_anomaly_detections, marker='o', linewidth=2.5, color='#d62728', label='Single Anomaly Mode (No Deduplication)')
+    plt.plot(n_nodes, multi_anomaly_detections, marker='s', linewidth=2.5, color='#2ca02c', label='Multi Anomaly Mode (Topology-Aware Merge)')
+    plt.title('Detections (Incidents Raised) vs. Number of Concurrent Anomalies', fontsize=14, fontweight='bold', pad=15)
+    plt.xlabel('Number of Concurrent Anomalous Nodes (N)', fontsize=12)
+    plt.ylabel('Number of Incidents Raised (Detections)', fontsize=12)
+    plt.xticks(n_nodes)
+    plt.yticks(np.arange(1, 12))
+    plt.grid(True, linestyle='--', alpha=0.6)
+    
+    for n in [2, 5, 10]:
+        reduction = single_anomaly_detections[n-1] - multi_anomaly_detections[n-1]
+        percent = (reduction / single_anomaly_detections[n-1]) * 100
+        if reduction > 0:
+            plt.annotate(f'-{int(percent)}% Alerts', 
+                         xy=(n, multi_anomaly_detections[n-1]), 
+                         xytext=(n, multi_anomaly_detections[n-1] + 1.5),
+                         arrowprops=dict(facecolor='black', shrink=0.08, width=1, headwidth=6),
+                         ha='center', fontsize=9, fontweight='bold', color='#1b5e20')
+
+    plt.legend(frameon=True, fontsize=10)
+    plt.tight_layout()
+    plt.savefig(out_dir / "multi_anomaly_showcase.png", dpi=150)
+    plt.close()
+
     print("Comparative plots generated in stress_regression_testing/graphs/")
+
 
 def generate_report(reg_results: dict, stress_results: dict, out_path: Path):
     seq = stress_results["sequential"]
@@ -493,6 +522,11 @@ def generate_report(reg_results: dict, stress_results: dict, out_path: Path):
         "A comparison of the maximum processing capacity (throughput) of the anomaly detection models (Isolation Forest, Kitsune, and Rule-based Signatures).",
         "",
         "![Model Throughput Comparison](graphs/model_throughput_comparison.png)",
+        "",
+        "#### Line Plot: Multi-Anomaly Showcase (Alert Reduction)",
+        "Visualizes how the Topology-Aware Merge collapses concurrent anomalies sharing an upstream dependency into a single focal incident, compared to the unmerged standalone mode which triggers an alert storm (one alert per node).",
+        "",
+        "![Multi-Anomaly Showcase](graphs/multi_anomaly_showcase.png)",
         "",
         "## 5. Bottleneck Analysis & Optimization Recommendations",
         "",

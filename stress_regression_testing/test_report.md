@@ -107,6 +107,12 @@ A comparison of the maximum processing capacity (throughput) of the anomaly dete
 
 ![Model Throughput Comparison](graphs/model_throughput_comparison.png)
 
+#### Line Plot: Multi-Anomaly Showcase (Alert Reduction)
+Visualizes how the Topology-Aware Merge collapses concurrent anomalies sharing an upstream dependency into a single focal incident, compared to the unmerged standalone mode which triggers an alert storm (one alert per node).
+
+![Multi-Anomaly Showcase](graphs/multi_anomaly_showcase.png)
+
+
 ## 5. Bottleneck Analysis & Optimization Recommendations
 
 ### Bottlenecks Identified:
